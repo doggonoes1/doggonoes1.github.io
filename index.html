@@ -27,11 +27,19 @@
   const auth = firebase.auth();
   const db   = firebase.firestore();
 
-  // Convenience helpers used by React code below
-  function fbDoc(uid, docName) {
-    // Each user gets their own sub-collection: users/{uid}/{docName}
-    return db.collection("users").doc(uid).collection("data").doc(docName);
-  }
+  // ── Scalable Firestore helpers ────────────────────────────────────────────
+  // NEW structure (one doc per album / one doc per log entry):
+  //   users/{uid}/albums/{albumId}   ← each album is its own document
+  //   users/{uid}/log/{entryId}      ← each log entry is its own document
+  //
+  // OLD structure (kept for migration only):
+  //   users/{uid}/data/albums        ← { list: [...] }  (may hit 1 MB limit)
+  //   users/{uid}/data/log           ← { list: [...] }
+
+  function albumsCol(uid)  { return db.collection("users").doc(uid).collection("albums"); }
+  function logCol(uid)     { return db.collection("users").doc(uid).collection("log"); }
+  // legacy doc refs — used only during one-time migration
+  function legacyDoc(uid, name) { return db.collection("users").doc(uid).collection("data").doc(name); }
 </script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
@@ -245,36 +253,6 @@ input,textarea,select{font-family:'Inter',sans-serif}
 .sync-dot{width:6px;height:6px;border-radius:50%;background:#81C784;flex-shrink:0}
 .sync-dot.syncing{background:#F5A623;animation:pulse 1s infinite}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
-/* ── Settings page (additive, does not alter any existing rules) ───────── */
-.settings-page{display:flex;flex-direction:column;gap:20px;max-width:880px}
-.settings-section{background:#1C1C22;border:1px solid #2a2a35;border-radius:14px;padding:24px}
-.settings-section-title{font-family:'Space Grotesk',sans-serif;font-size:16px;font-weight:700;margin-bottom:3px;display:flex;align-items:center;gap:8px}
-.settings-section-desc{font-size:13px;color:#5a5a70;margin-bottom:18px;line-height:1.5}
-.settings-row{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:13px 0;border-bottom:1px solid #2a2a35}
-.settings-row:last-child{border-bottom:none}
-.settings-row-label{font-size:14px;font-weight:600;color:#E8E8F0}
-.settings-row-sub{font-size:12px;color:#5a5a70;margin-top:2px;line-height:1.5}
-.toggle-switch{position:relative;width:42px;height:24px;border-radius:30px;background:#242430;border:1px solid #38384a;cursor:pointer;transition:all .2s;flex-shrink:0}
-.toggle-switch.on{background:rgba(245,166,35,.22);border-color:#F5A623}
-.toggle-switch::after{content:'';position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:#9090A8;transition:all .2s}
-.toggle-switch.on::after{left:20px;background:#F5A623}
-.swatch-row{display:flex;gap:10px;flex-wrap:wrap}
-.color-swatch{width:30px;height:30px;border-radius:50%;cursor:pointer;border:2px solid transparent;transition:all .15s;position:relative;flex-shrink:0}
-.color-swatch:hover{transform:scale(1.08)}
-.color-swatch.selected{border-color:#E8E8F0}
-.color-swatch.selected::after{content:'✓';position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:13px;color:#000;font-weight:700;text-shadow:0 0 2px rgba(255,255,255,.4)}
-.pill-group{display:flex;gap:8px;flex-wrap:wrap}
-.pill-btn{padding:7px 15px;border-radius:30px;font-size:13px;font-weight:600;border:1px solid #2a2a35;background:#242430;color:#9090A8;cursor:pointer;transition:all .15s}
-.pill-btn:hover{color:#E8E8F0;border-color:#38384a}
-.pill-btn.active{border-color:#F5A623;background:rgba(245,166,35,.12);color:#F5A623}
-.settings-account-card{display:flex;align-items:center;gap:14px;padding:14px 16px;background:#242430;border-radius:10px;margin-bottom:16px}
-.settings-account-avatar{width:46px;height:46px;border-radius:50%;background:#1C1C22;display:flex;align-items:center;justify-content:center;font-size:20px;overflow:hidden;flex-shrink:0}
-.settings-account-avatar img{width:100%;height:100%;object-fit:cover}
-.settings-stat-strip{display:flex;gap:24px;flex-wrap:wrap;margin-bottom:18px;padding:14px 16px;background:#242430;border-radius:10px}
-.settings-stat-strip div{display:flex;flex-direction:column;gap:2px}
-.settings-stat-strip strong{font-family:'Space Grotesk',sans-serif;font-size:18px;color:#F5A623}
-.settings-stat-strip span{font-size:11px;color:#5a5a70}
-.settings-saved-pill{font-size:11px;color:#81C784;background:rgba(129,199,132,.12);padding:3px 10px;border-radius:20px;font-weight:600;margin-left:auto}
 </style>
 </head>
 <body>
@@ -407,54 +385,13 @@ const EMPTY_ALBUM = () => ({
   cover: null, songs: [EMPTY_SONG()], review: "", dateAdded: new Date().toISOString(),
 });
 
-// ── App preferences (Settings) ──────────────────────────────────────────
-// NOTE: these are purely local UI/display preferences stored in the
-// browser's localStorage. They never touch Firebase and have nothing to
-// do with album/log data — completely separate from the sync logic above.
-const SETTINGS_KEY = "waxify_settings_v1";
-const DEFAULT_SETTINGS = {
-  accent: "amber",
-  density: "comfortable",
-  cardSize: "medium",
-  fontScale: "default",
-  reduceMotion: false,
-  showSidebarStats: true,
-  showSyncIndicator: true,
-  toastEnabled: true,
-  defaultView: "library",
-  defaultSort: "dateAdded",
-  defaultTierFilter: "all",
-};
-const ACCENT_COLORS = {
-  amber:  "#F5A623",
-  blue:   "#4FC3F7",
-  red:    "#FF6B6B",
-  green:  "#81C784",
-  purple: "#CE93D8",
-  pink:   "#F783AC",
-  teal:   "#4DD0C4",
-  mono:   "#E8E8F0",
-};
-const CARD_SIZES = { small: 220, medium: 280, large: 340 };
-const FONT_SCALES = { small: "93%", default: "100%", large: "110%" };
-function loadSettings() {
-  try {
-    const raw = localStorage.getItem(SETTINGS_KEY);
-    if (!raw) return { ...DEFAULT_SETTINGS };
-    return { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
-  } catch { return { ...DEFAULT_SETTINGS }; }
-}
-function persistSettings(s) {
-  try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)); } catch {}
-}
-
 function App({ user }) {
   const [albums, setAlbums] = useState([]);
   const [log,    setLog]    = useState([]);
-  const [view, setView] = useState(() => loadSettings().defaultView || "library");
+  const [view, setView] = useState("library");
   const [search, setSearch] = useState("");
-  const [filterTier, setFilterTier] = useState(() => loadSettings().defaultTierFilter || "all");
-  const [sortBy, setSortBy] = useState(() => loadSettings().defaultSort || "dateAdded");
+  const [filterTier, setFilterTier] = useState("all");
+  const [sortBy, setSortBy] = useState("dateAdded");
   const [selectedAlbum, setSelectedAlbum] = useState(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingAlbum, setEditingAlbum] = useState(null);
@@ -465,102 +402,175 @@ function App({ user }) {
   const [compareMode, setCompareMode] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [dataLoaded, setDataLoaded] = useState(false);
-  const [settings, setSettings] = useState(loadSettings);
 
-  // ── Load from Firestore on mount ────────────────────────────────────────
+  // ── Pending writes queue (album id → album data, null = delete) ─────────
+  const pendingAlbumWrites = useRef({});  // { [albumId]: albumData | "__DELETE__" }
+  const pendingLogWrites   = useRef({});  // { [entryId]: entryData }
+  const pendingLogClears   = useRef(false);
+
+  // ── Load from Firestore on mount (new per-document structure) ────────────
   useEffect(() => {
     async function load() {
       try {
-        const [albumsSnap, logSnap] = await Promise.all([
-          fbDoc(user.uid, "albums").get(),
-          fbDoc(user.uid, "log").get()
+        // 1. Try new scalable collections first
+        const [newAlbumsSnap, newLogSnap] = await Promise.all([
+          albumsCol(user.uid).orderBy("dateAdded", "asc").get().catch(() => null),
+          logCol(user.uid).orderBy("ts", "desc").limit(500).get().catch(() => null),
         ]);
-        if (albumsSnap.exists) setAlbums(albumsSnap.data().list || []);
-        if (logSnap.exists)   setLog(logSnap.data().list || []);
+
+        let loadedAlbums = [];
+        let loadedLog    = [];
+
+        if (newAlbumsSnap && !newAlbumsSnap.empty) {
+          // ✅ New structure exists — use it
+          loadedAlbums = newAlbumsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+        } else {
+          // 🔄 Try legacy single-doc structure and migrate if found
+          const [legacyAlbumsSnap] = await Promise.all([
+            legacyDoc(user.uid, "albums").get().catch(() => null),
+          ]);
+          if (legacyAlbumsSnap && legacyAlbumsSnap.exists) {
+            loadedAlbums = legacyAlbumsSnap.data().list || [];
+            // Migrate albums → write each to its own doc (batched, 500/batch max)
+            if (loadedAlbums.length > 0) {
+              console.log(`Waxify: migrating ${loadedAlbums.length} albums to scalable structure…`);
+              const BATCH_SIZE = 400;
+              for (let i = 0; i < loadedAlbums.length; i += BATCH_SIZE) {
+                const batch = db.batch();
+                loadedAlbums.slice(i, i + BATCH_SIZE).forEach(album => {
+                  batch.set(albumsCol(user.uid).doc(album.id), album);
+                });
+                await batch.commit();
+              }
+              // Delete legacy doc once migration succeeds
+              await legacyDoc(user.uid, "albums").delete().catch(() => {});
+              console.log("Waxify: album migration complete.");
+            }
+          }
+        }
+
+        if (newLogSnap && !newLogSnap.empty) {
+          // ✅ New log structure exists
+          loadedLog = newLogSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+        } else {
+          // 🔄 Try legacy log and migrate
+          const legacyLogSnap = await legacyDoc(user.uid, "log").get().catch(() => null);
+          if (legacyLogSnap && legacyLogSnap.exists) {
+            loadedLog = legacyLogSnap.data().list || [];
+            if (loadedLog.length > 0) {
+              console.log(`Waxify: migrating ${loadedLog.length} log entries…`);
+              const BATCH_SIZE = 400;
+              for (let i = 0; i < loadedLog.length; i += BATCH_SIZE) {
+                const batch = db.batch();
+                loadedLog.slice(i, i + BATCH_SIZE).forEach(entry => {
+                  const entryId = entry.id || crypto.randomUUID();
+                  batch.set(logCol(user.uid).doc(entryId), { ...entry, id: entryId });
+                });
+                await batch.commit();
+              }
+              await legacyDoc(user.uid, "log").delete().catch(() => {});
+              console.log("Waxify: log migration complete.");
+            }
+          }
+        }
+
+        setAlbums(loadedAlbums);
+        setLog(loadedLog);
       } catch(e) { console.error("Firestore load error", e); }
       setDataLoaded(true);
     }
     load();
   }, [user.uid]);
 
-  // ── Save albums to Firestore whenever they change (debounced 800 ms) ────
-  const albumsSaveTimer = useRef(null);
-  useEffect(() => {
-    if (!dataLoaded) return;
-    clearTimeout(albumsSaveTimer.current);
+  // ── Flush pending writes (debounced) ─────────────────────────────────────
+  const flushTimer = useRef(null);
+  function scheduleFlush() {
+    clearTimeout(flushTimer.current);
     setSyncing(true);
-    albumsSaveTimer.current = setTimeout(async () => {
+    flushTimer.current = setTimeout(async () => {
       try {
-        await fbDoc(user.uid, "albums").set({ list: albums });
-      } catch(e) { console.error("Firestore save (albums) error", e); }
+        // --- Album writes ---
+        const albumEntries = Object.entries(pendingAlbumWrites.current);
+        pendingAlbumWrites.current = {};
+        if (albumEntries.length > 0) {
+          const BATCH_SIZE = 400;
+          for (let i = 0; i < albumEntries.length; i += BATCH_SIZE) {
+            const batch = db.batch();
+            albumEntries.slice(i, i + BATCH_SIZE).forEach(([id, data]) => {
+              const ref = albumsCol(user.uid).doc(id);
+              if (data === "__DELETE__") batch.delete(ref);
+              else batch.set(ref, data);
+            });
+            await batch.commit();
+          }
+        }
+        // --- Log writes ---
+        if (pendingLogClears.current) {
+          // Delete all log docs
+          pendingLogClears.current = false;
+          pendingLogWrites.current = {};
+          const snap = await logCol(user.uid).get();
+          const BATCH_SIZE = 400;
+          for (let i = 0; i < snap.docs.length; i += BATCH_SIZE) {
+            const batch = db.batch();
+            snap.docs.slice(i, i + BATCH_SIZE).forEach(d => batch.delete(d.ref));
+            await batch.commit();
+          }
+        } else {
+          const logEntries = Object.entries(pendingLogWrites.current);
+          pendingLogWrites.current = {};
+          if (logEntries.length > 0) {
+            const BATCH_SIZE = 400;
+            for (let i = 0; i < logEntries.length; i += BATCH_SIZE) {
+              const batch = db.batch();
+              logEntries.slice(i, i + BATCH_SIZE).forEach(([id, data]) => {
+                batch.set(logCol(user.uid).doc(id), data);
+              });
+              await batch.commit();
+            }
+          }
+        }
+      } catch(e) { console.error("Firestore flush error", e); }
       setSyncing(false);
     }, 800);
-  }, [albums, dataLoaded]);
+  }
 
-  // ── Save log to Firestore whenever it changes (debounced 800 ms) ────────
-  const logSaveTimer = useRef(null);
+  // ── Track album state changes → queue writes ─────────────────────────────
+  const prevAlbumsRef = useRef(null);
   useEffect(() => {
     if (!dataLoaded) return;
-    clearTimeout(logSaveTimer.current);
-    logSaveTimer.current = setTimeout(async () => {
-      try {
-        await fbDoc(user.uid, "log").set({ list: log.slice(0, 500) });
-      } catch(e) { console.error("Firestore save (log) error", e); }
-    }, 800);
-  }, [log, dataLoaded]);
+    const prev = prevAlbumsRef.current;
+    if (prev !== null) {
+      const prevMap = Object.fromEntries(prev.map(a => [a.id, a]));
+      const currMap = Object.fromEntries(albums.map(a => [a.id, a]));
+      // Upserts
+      albums.forEach(a => { if (JSON.stringify(a) !== JSON.stringify(prevMap[a.id])) pendingAlbumWrites.current[a.id] = a; });
+      // Deletions
+      prev.forEach(a => { if (!currMap[a.id]) pendingAlbumWrites.current[a.id] = "__DELETE__"; });
+      scheduleFlush();
+    }
+    prevAlbumsRef.current = albums;
+  }, [albums, dataLoaded]);
 
-  // ── Apply Settings (local-only: localStorage + a dynamic stylesheet) ────
-  // This never reads/writes Firebase and never touches albums/log data.
+  // ── Track log state changes → queue writes ───────────────────────────────
+  const prevLogRef = useRef(null);
   useEffect(() => {
-    persistSettings(settings);
-    const accentHex = ACCENT_COLORS[settings.accent] || ACCENT_COLORS.amber;
-    const cardMin = CARD_SIZES[settings.cardSize] || CARD_SIZES.medium;
-    const fontPct = FONT_SCALES[settings.fontScale] || FONT_SCALES.default;
-    let css = `
-      html{font-size:${fontPct};}
-      .nav-btn.active{background:${accentHex}1F;color:${accentHex};}
-      .filter-chip.active{border-color:${accentHex};background:${accentHex}1F;color:${accentHex};}
-      .pill-btn.active{border-color:${accentHex};background:${accentHex}1F;color:${accentHex};}
-      .toggle-switch.on{background:${accentHex}33;border-color:${accentHex};}
-      .toggle-switch.on::after{background:${accentHex};}
-      .btn-primary{background:${accentHex};color:#0D0D0F;}
-      .search-box:focus-within{border-color:${accentHex};}
-      .filter-select:focus{border-color:${accentHex};}
-      .field-input:focus{border-color:${accentHex};}
-      .review-textarea:focus{border-color:${accentHex};}
-      .sidebar-logo{color:${accentHex};}
-      .auth-logo{color:${accentHex};}
-      .album-rank{color:${accentHex};}
-      .rating-slider::-webkit-slider-thumb{background:${accentHex};}
-      .rating-slider::-moz-range-thumb{background:${accentHex};}
-      .album-grid{grid-template-columns:repeat(auto-fill,minmax(${cardMin}px,1fr));}
-    `;
-    if (settings.density === "compact") {
-      css += `
-        .content{padding:18px;}
-        .album-card-body{padding:11px;gap:7px;}
-        .topbar{padding:10px 22px;}
-        .stat-card{padding:14px;}
-        .nav-btn{padding:7px 12px;}
-        .settings-section{padding:18px;}
-      `;
+    if (!dataLoaded) return;
+    const prev = prevLogRef.current;
+    if (prev !== null) {
+      if (log.length === 0 && prev.length > 0) {
+        // Log was cleared
+        pendingLogClears.current = true;
+        pendingLogWrites.current = {};
+      } else {
+        // Find new entries (new log entries are prepended)
+        const prevIds = new Set(prev.map(e => e.id));
+        log.forEach(e => { if (!prevIds.has(e.id)) pendingLogWrites.current[e.id] = e; });
+      }
+      scheduleFlush();
     }
-    if (settings.reduceMotion) {
-      css += `*,*::before,*::after{transition:none!important;animation:none!important;}`;
-    }
-    if (!settings.showSidebarStats) css += `.sidebar-stats{display:none;}`;
-    if (!settings.showSyncIndicator) css += `.sync-indicator{display:none;}`;
-    if (!settings.toastEnabled) css += `.toast{display:none;}`;
-    let styleTag = document.getElementById("waxify-dynamic-theme");
-    if (!styleTag) {
-      styleTag = document.createElement("style");
-      styleTag.id = "waxify-dynamic-theme";
-      document.head.appendChild(styleTag);
-    }
-    styleTag.textContent = css;
-  }, [settings]);
-  function updateSetting(key, value) { setSettings(prev => ({ ...prev, [key]: value })); }
-  function resetSettings() { setSettings({ ...DEFAULT_SETTINGS }); showToast("Settings reset", "↩️"); }
+    prevLogRef.current = log;
+  }, [log, dataLoaded]);
 
   function addLog(entry) {
     setLog(prev => [{ ...entry, id: crypto.randomUUID(), ts: new Date().toISOString() }, ...prev]);
@@ -672,7 +682,6 @@ function App({ user }) {
     { id: "artists", icon: "🎤", label: "Artists" },
     { id: "stats", icon: "📊", label: "Statistics" },
     { id: "log", icon: "📋", label: "Edit Log" },
-    { id: "settings", icon: "⚙️", label: "Settings" },
   ];
 
   return (
@@ -702,7 +711,6 @@ function App({ user }) {
             {view === "artists" && "Artists"}
             {view === "stats" && "Statistics"}
             {view === "log" && "Edit Log"}
-            {view === "settings" && "Settings"}
           </div>
           {view === "library" && (
             <>
@@ -731,19 +739,6 @@ function App({ user }) {
           {view === "artists" && <ArtistView stats={artistStats} onSelect={artist => { setSearch(artist); setView("library"); }} />}
           {view === "stats" && <StatsView albums={albums} globalStats={globalStats} ranked={ranked} />}
           {view === "log" && <LogView log={log} albums={albums} onClear={() => { setLog([]); showToast("Log cleared", "🗑"); }} />}
-          {view === "settings" && (
-            <SettingsView
-              settings={settings}
-              updateSetting={updateSetting}
-              resetSettings={resetSettings}
-              user={user}
-              onSignOut={handleSignOut}
-              onExport={handleExport}
-              onImport={handleImport}
-              globalStats={globalStats}
-              logCount={log.length}
-            />
-          )}
         </div>
       </div>
 
@@ -1256,174 +1251,6 @@ function LogView({ log, albums, onClear }) {
           </div>
         ))
       }
-    </div>
-  );
-}
-
-function Toggle({ on, onClick }) {
-  return <button type="button" className={"toggle-switch" + (on ? " on" : "")} onClick={onClick} role="switch" aria-checked={on}/>;
-}
-
-function SettingsView({ settings, updateSetting, resetSettings, user, onSignOut, onExport, onImport, globalStats, logCount }) {
-  const fileRef = React.useRef();
-  return (
-    <div className="settings-page">
-
-      {/* Account */}
-      <div className="settings-section">
-        <div className="settings-section-title">👤 Account</div>
-        <div className="settings-section-desc">You're signed in and your library syncs automatically to the cloud.</div>
-        <div className="settings-account-card">
-          <div className="settings-account-avatar">
-            {user.photoURL ? <img src={user.photoURL} alt=""/> : "👤"}
-          </div>
-          <div style={{flex:1,minWidth:0}}>
-            <div style={{fontWeight:600,fontSize:14,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{user.displayName || "Waxify user"}</div>
-            <div style={{fontSize:12,color:"#5a5a70",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{user.email}</div>
-          </div>
-          <button className="btn btn-ghost btn-sm" onClick={onSignOut}>Sign out</button>
-        </div>
-      </div>
-
-      {/* Appearance */}
-      <div className="settings-section">
-        <div className="settings-section-title">🎨 Appearance</div>
-        <div className="settings-section-desc">Customize how Waxify looks on this device. These preferences are saved locally to your browser.</div>
-
-        <div className="settings-row" style={{flexDirection:"column",alignItems:"flex-start",gap:10}}>
-          <div className="settings-row-label">Accent color</div>
-          <div className="swatch-row">
-            {Object.entries(ACCENT_COLORS).map(([key,hex]) => (
-              <div key={key} className={"color-swatch"+(settings.accent===key?" selected":"")} style={{background:hex}} title={key} onClick={() => updateSetting("accent", key)}/>
-            ))}
-          </div>
-        </div>
-
-        <div className="settings-row" style={{flexDirection:"column",alignItems:"flex-start",gap:10}}>
-          <div className="settings-row-label">Album card size</div>
-          <div className="pill-group">
-            {["small","medium","large"].map(s => (
-              <button key={s} className={"pill-btn"+(settings.cardSize===s?" active":"")} onClick={() => updateSetting("cardSize", s)}>{s[0].toUpperCase()+s.slice(1)}</button>
-            ))}
-          </div>
-        </div>
-
-        <div className="settings-row" style={{flexDirection:"column",alignItems:"flex-start",gap:10}}>
-          <div className="settings-row-label">Text size</div>
-          <div className="pill-group">
-            {["small","default","large"].map(s => (
-              <button key={s} className={"pill-btn"+(settings.fontScale===s?" active":"")} onClick={() => updateSetting("fontScale", s)}>{s[0].toUpperCase()+s.slice(1)}</button>
-            ))}
-          </div>
-        </div>
-
-        <div className="settings-row" style={{flexDirection:"column",alignItems:"flex-start",gap:10}}>
-          <div className="settings-row-label">Layout density</div>
-          <div className="pill-group">
-            {[["comfortable","Comfortable"],["compact","Compact"]].map(([v,l]) => (
-              <button key={v} className={"pill-btn"+(settings.density===v?" active":"")} onClick={() => updateSetting("density", v)}>{l}</button>
-            ))}
-          </div>
-        </div>
-
-        <div className="settings-row">
-          <div>
-            <div className="settings-row-label">Reduce motion</div>
-            <div className="settings-row-sub">Turns off transitions and animations across the app.</div>
-          </div>
-          <Toggle on={settings.reduceMotion} onClick={() => updateSetting("reduceMotion", !settings.reduceMotion)}/>
-        </div>
-      </div>
-
-      {/* Library defaults */}
-      <div className="settings-section">
-        <div className="settings-section-title">🎵 Library defaults</div>
-        <div className="settings-section-desc">Choose what Waxify shows by default each time you open it.</div>
-
-        <div className="settings-row" style={{flexDirection:"column",alignItems:"flex-start",gap:10}}>
-          <div className="settings-row-label">Default tab on open</div>
-          <div className="pill-group">
-            {[["library","🎵 Library"],["rankings","🏆 Rankings"],["artists","🎤 Artists"],["stats","📊 Statistics"],["log","📋 Edit Log"]].map(([v,l]) => (
-              <button key={v} className={"pill-btn"+(settings.defaultView===v?" active":"")} onClick={() => updateSetting("defaultView", v)}>{l}</button>
-            ))}
-          </div>
-        </div>
-
-        <div className="settings-row" style={{flexDirection:"column",alignItems:"flex-start",gap:10}}>
-          <div className="settings-row-label">Default sort order</div>
-          <div className="pill-group">
-            {[["dateAdded","Date added"],["rating","Rating"],["title","Title"],["artist","Artist"],["year","Year"]].map(([v,l]) => (
-              <button key={v} className={"pill-btn"+(settings.defaultSort===v?" active":"")} onClick={() => updateSetting("defaultSort", v)}>{l}</button>
-            ))}
-          </div>
-        </div>
-
-        <div className="settings-row" style={{flexDirection:"column",alignItems:"flex-start",gap:10}}>
-          <div className="settings-row-label">Default tier filter</div>
-          <div className="pill-group">
-            {["all","S","A","B","C","D","F"].map(t => (
-              <button key={t} className={"pill-btn"+(settings.defaultTierFilter===t?" active":"")} onClick={() => updateSetting("defaultTierFilter", t)}>{t==="all"?"All tiers":t+" tier"}</button>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* Interface */}
-      <div className="settings-section">
-        <div className="settings-section-title">🧩 Interface</div>
-        <div className="settings-section-desc">Show or hide small bits of chrome around the app.</div>
-        <div className="settings-row">
-          <div>
-            <div className="settings-row-label">Sidebar quick stats</div>
-            <div className="settings-row-sub">Album/song counts and average score under the nav.</div>
-          </div>
-          <Toggle on={settings.showSidebarStats} onClick={() => updateSetting("showSidebarStats", !settings.showSidebarStats)}/>
-        </div>
-        <div className="settings-row">
-          <div>
-            <div className="settings-row-label">Sync status indicator</div>
-            <div className="settings-row-sub">The "Synced / Saving…" pill in the top bar.</div>
-          </div>
-          <Toggle on={settings.showSyncIndicator} onClick={() => updateSetting("showSyncIndicator", !settings.showSyncIndicator)}/>
-        </div>
-        <div className="settings-row">
-          <div>
-            <div className="settings-row-label">Toast notifications</div>
-            <div className="settings-row-sub">Small confirmation popups like "Saved" or "Exported".</div>
-          </div>
-          <Toggle on={settings.toastEnabled} onClick={() => updateSetting("toastEnabled", !settings.toastEnabled)}/>
-        </div>
-      </div>
-
-      {/* Data & backup */}
-      <div className="settings-section">
-        <div className="settings-section-title">💾 Data &amp; backup</div>
-        <div className="settings-section-desc">Your library lives in the cloud and syncs automatically. You can also keep a local backup file.</div>
-        <div className="settings-stat-strip">
-          <div><strong>{globalStats.total}</strong><span>Albums</span></div>
-          <div><strong>{globalStats.totalSongs}</strong><span>Songs</span></div>
-          <div><strong>{globalStats.rated}</strong><span>Rated albums</span></div>
-          <div><strong>{logCount}</strong><span>Log entries</span></div>
-        </div>
-        <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
-          <button className="btn btn-ghost btn-sm" onClick={onExport}>💾 Export backup (.json)</button>
-          <button className="btn btn-ghost btn-sm" onClick={() => fileRef.current.click()}>📂 Import from file</button>
-          <input ref={fileRef} type="file" accept=".json" style={{display:"none"}} onChange={onImport}/>
-        </div>
-      </div>
-
-      {/* About / Reset */}
-      <div className="settings-section">
-        <div className="settings-section-title">ℹ️ About</div>
-        <div className="settings-section-desc">🎧 Waxify — your personal album rating vault.</div>
-        <div className="settings-row">
-          <div>
-            <div className="settings-row-label">Reset appearance settings</div>
-            <div className="settings-row-sub">Restores defaults above. Your albums, ratings, and edit log are never affected.</div>
-          </div>
-          <button className="btn btn-ghost btn-sm" onClick={resetSettings}>↩️ Reset</button>
-        </div>
-      </div>
     </div>
   );
 }
