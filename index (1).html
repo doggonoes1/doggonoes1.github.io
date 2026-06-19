@@ -1,0 +1,1207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Waxify — Album Rater</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<!-- Firebase SDK (compat / UMD builds — work in plain HTML without a bundler) -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script>
+  // ── PASTE YOUR FIREBASE CONFIG HERE ──────────────────────────────────────
+  const firebaseConfig = {
+    apiKey: "YOUR_API_KEY",
+    authDomain: "YOUR_AUTH_DOMAIN",
+    projectId: "YOUR_PROJECT_ID",
+    storageBucket: "YOUR_STORAGE_BUCKET",
+    messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
+    appId: "YOUR_APP_ID",
+    measurementId: "YOUR_MEASUREMENT_ID"
+  };
+  // ─────────────────────────────────────────────────────────────────────────
+
+  firebase.initializeApp(firebaseConfig);
+  const auth = firebase.auth();
+  const db   = firebase.firestore();
+
+  // Convenience helpers used by React code below
+  function fbDoc(uid, docName) {
+    // Each user gets their own sub-collection: users/{uid}/{docName}
+    return db.collection("users").doc(uid).collection("data").doc(docName);
+  }
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg0:#0D0D0F;--bg1:#141416;--bg2:#1C1C22;--bg3:#242430;
+  --border:#2a2a35;--border2:#38384a;
+  --text:#E8E8F0;--text2:#9090A8;--text3:#5a5a70;
+  --amber:#F5A623;--amber-dim:rgba(245,166,35,0.12);
+  --blue:#4FC3F7;--red:#FF6B6B;--green:#81C784;--purple:#CE93D8;
+  --radius:14px;--radius-sm:8px;
+  --font-display:'Space Grotesk',sans-serif;--font-body:'Inter',sans-serif;
+}
+html,body{background:#0D0D0F;color:#E8E8F0;font-family:'Inter',sans-serif;min-height:100vh;scroll-behavior:smooth}
+button{cursor:pointer;font-family:'Inter',sans-serif;border:none;background:none}
+input,textarea,select{font-family:'Inter',sans-serif}
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:#141416}
+::-webkit-scrollbar-thumb{background:#38384a;border-radius:3px}
+.app{display:flex;min-height:100vh}
+.sidebar{width:220px;min-height:100vh;background:#141416;border-right:1px solid #2a2a35;display:flex;flex-direction:column;position:sticky;top:0;height:100vh;overflow-y:auto;flex-shrink:0}
+.sidebar-logo{padding:24px 20px 16px;font-family:'Space Grotesk',sans-serif;font-size:18px;font-weight:700;color:#F5A623;letter-spacing:-.3px;display:flex;align-items:center;gap:10px}
+.sidebar-logo span{font-size:22px}
+.sidebar-nav{display:flex;flex-direction:column;gap:2px;padding:8px 10px;flex:1}
+.nav-btn{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:8px;color:#9090A8;font-size:14px;font-weight:500;transition:all .15s;text-align:left;width:100%}
+.nav-btn:hover{background:#1C1C22;color:#E8E8F0}
+.nav-btn.active{background:rgba(245,166,35,.12);color:#F5A623}
+.nav-btn .icon{font-size:16px;width:20px;text-align:center}
+.sidebar-stats{padding:16px 20px;border-top:1px solid #2a2a35}
+.sidebar-stat{font-size:12px;color:#5a5a70;margin-bottom:4px}
+.sidebar-stat strong{color:#9090A8}
+.main{flex:1;min-width:0}
+.topbar{background:#141416;border-bottom:1px solid #2a2a35;padding:14px 28px;display:flex;align-items:center;gap:14px;position:sticky;top:0;z-index:100;flex-wrap:wrap}
+.topbar-title{font-family:'Space Grotesk',sans-serif;font-size:20px;font-weight:700;flex:1}
+.search-box{display:flex;align-items:center;gap:8px;background:#1C1C22;border:1px solid #2a2a35;border-radius:30px;padding:7px 14px;width:260px;transition:border-color .2s}
+.search-box:focus-within{border-color:#F5A623}
+.search-box input{background:none;border:none;outline:none;color:#E8E8F0;font-size:14px;width:100%}
+.search-box .search-icon{color:#5a5a70;font-size:15px}
+.btn{display:inline-flex;align-items:center;gap:7px;padding:8px 16px;border-radius:30px;font-size:14px;font-weight:600;transition:all .15s;cursor:pointer;border:none}
+.btn-primary{background:#F5A623;color:#0D0D0F}
+.btn-primary:hover{background:#fdb544;transform:translateY(-1px)}
+.btn-ghost{background:#242430;color:#9090A8}
+.btn-ghost:hover{background:#38384a;color:#E8E8F0}
+.btn-danger{background:rgba(255,107,107,.15);color:#FF6B6B}
+.btn-danger:hover{background:rgba(255,107,107,.25)}
+.btn-sm{padding:5px 12px;font-size:12px}
+.content{padding:28px}
+.filters{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:24px}
+.filter-select{background:#1C1C22;border:1px solid #2a2a35;border-radius:30px;color:#E8E8F0;padding:7px 14px;font-size:13px;outline:none;cursor:pointer;transition:border-color .2s}
+.filter-select:focus{border-color:#F5A623}
+.filter-chip{padding:6px 14px;border-radius:30px;font-size:13px;font-weight:500;border:1px solid #2a2a35;background:#1C1C22;color:#9090A8;cursor:pointer;transition:all .15s}
+.filter-chip.active{border-color:#F5A623;background:rgba(245,166,35,.12);color:#F5A623}
+.album-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:20px}
+.album-card{background:#1C1C22;border:1px solid #2a2a35;border-radius:14px;overflow:hidden;cursor:pointer;transition:all .2s;display:flex;flex-direction:column;position:relative}
+.album-card:hover{border-color:#38384a;transform:translateY(-3px);box-shadow:0 12px 40px rgba(0,0,0,.5)}
+.album-card.compare-selected{border-color:#4FC3F7;box-shadow:0 0 0 2px rgba(79,195,247,.3)}
+.compare-check{position:absolute;top:10px;left:10px;z-index:10;width:26px;height:26px;border-radius:50%;background:#141416;border:2px solid #38384a;display:flex;align-items:center;justify-content:center;font-size:12px;transition:all .15s}
+.compare-check.checked{background:#4FC3F7;border-color:#4FC3F7;color:#000}
+.album-cover{width:100%;aspect-ratio:1;background:#242430;display:flex;align-items:center;justify-content:center;font-size:56px;position:relative;overflow:hidden}
+.album-cover img{width:100%;height:100%;object-fit:cover}
+.album-cover-placeholder{display:flex;align-items:center;justify-content:center;width:100%;height:100%;background:linear-gradient(135deg,#242430 0%,#1C1C22 100%)}
+.album-rank{position:absolute;top:10px;left:10px;background:rgba(13,13,15,.85);backdrop-filter:blur(6px);border-radius:20px;padding:3px 9px;font-size:12px;font-weight:700;color:#F5A623;font-family:'Space Grotesk',sans-serif}
+.tier-badge{position:absolute;top:10px;right:10px;border-radius:8px;padding:3px 10px;font-size:13px;font-weight:700;font-family:'Space Grotesk',sans-serif;backdrop-filter:blur(6px)}
+.album-card-body{padding:16px;display:flex;flex-direction:column;gap:10px;flex:1}
+.album-card-top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
+.album-card-info{flex:1;min-width:0}
+.album-title{font-family:'Space Grotesk',sans-serif;font-size:15px;font-weight:700;color:#E8E8F0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.album-artist{font-size:13px;color:#9090A8;margin-top:2px}
+.album-meta{display:flex;gap:8px;flex-wrap:wrap}
+.meta-tag{background:#242430;color:#5a5a70;border-radius:4px;padding:2px 7px;font-size:11px;font-weight:500}
+.album-fav{font-size:12px;color:#5a5a70;display:flex;align-items:center;gap:5px}
+.album-fav strong{color:#F5A623}
+.compare-bar{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:400;background:#1C1C22;border:1px solid #4FC3F7;border-radius:40px;padding:12px 20px;display:flex;align-items:center;gap:14px;box-shadow:0 8px 32px rgba(0,0,0,.6);animation:slideUp .3s ease}
+.compare-bar-slot{display:flex;align-items:center;gap:8px;min-width:120px}
+.compare-bar-cover{width:32px;height:32px;border-radius:6px;background:#242430;display:flex;align-items:center;justify-content:center;font-size:16px;overflow:hidden;flex-shrink:0}
+.compare-bar-cover img{width:100%;height:100%;object-fit:cover}
+.compare-bar-title{font-size:13px;font-weight:600;max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.compare-vs{font-family:'Space Grotesk',sans-serif;font-size:13px;font-weight:700;color:#5a5a70}
+.detail-overlay{position:fixed;inset:0;background:rgba(0,0,0,.7);backdrop-filter:blur(4px);z-index:200;display:flex;align-items:flex-start;justify-content:center;padding:20px;overflow-y:auto}
+.detail-panel{background:#141416;border:1px solid #38384a;border-radius:20px;width:100%;max-width:800px;overflow:hidden;margin:auto}
+.detail-header{display:flex;gap:24px;padding:28px;background:linear-gradient(135deg,#1C1C22 0%,#141416 100%);border-bottom:1px solid #2a2a35}
+.detail-cover{width:140px;height:140px;border-radius:12px;flex-shrink:0;background:#242430;display:flex;align-items:center;justify-content:center;font-size:48px;overflow:hidden;position:relative}
+.detail-cover img{width:100%;height:100%;object-fit:cover}
+.detail-cover-upload{position:absolute;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity .2s;cursor:pointer;font-size:24px}
+.detail-cover:hover .detail-cover-upload{opacity:1}
+.detail-info{flex:1;min-width:0}
+.detail-title{font-family:'Space Grotesk',sans-serif;font-size:26px;font-weight:700;line-height:1.2}
+.detail-artist{font-size:16px;color:#9090A8;margin:6px 0}
+.detail-badges{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:10px 0}
+.detail-score-area{display:flex;align-items:center;gap:16px;margin-top:8px}
+.score-big{font-family:'Space Grotesk',sans-serif;font-size:42px;font-weight:700;color:#F5A623;line-height:1}
+.score-suffix{font-size:16px;color:#5a5a70}
+.detail-body{padding:24px 28px}
+.section-label{font-family:'Space Grotesk',sans-serif;font-size:11px;font-weight:600;color:#5a5a70;letter-spacing:1.5px;text-transform:uppercase;margin-bottom:12px;display:flex;align-items:center;gap:8px}
+.section-label::after{content:'';flex:1;height:1px;background:#2a2a35}
+.song-list{display:flex;flex-direction:column;gap:4px;margin-bottom:28px}
+.song-row{display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:8px;transition:background .15s;border:1px solid transparent}
+.song-row:hover{background:#1C1C22}
+.song-row.fav-song{border-color:rgba(245,166,35,.3);background:rgba(245,166,35,.04)}
+.song-num{font-size:12px;color:#5a5a70;width:22px;text-align:right;flex-shrink:0}
+.song-title-wrap{flex:1;min-width:0}
+.song-title-text{font-size:14px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.song-note{font-size:11px;color:#5a5a70;margin-top:1px}
+.song-fav-star{color:#F5A623;font-size:13px}
+.song-rating-display{font-family:'Space Grotesk',sans-serif;font-size:15px;font-weight:700;min-width:32px;text-align:center}
+.rating-slider-wrap{display:flex;align-items:center;gap:10px;flex:1}
+.rating-slider{-webkit-appearance:none;appearance:none;width:100%;height:4px;border-radius:2px;background:#242430;outline:none;cursor:pointer}
+.rating-slider::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:16px;height:16px;border-radius:50%;background:#F5A623;cursor:pointer;transition:transform .1s}
+.rating-slider::-webkit-slider-thumb:hover{transform:scale(1.2)}
+.rating-slider::-moz-range-thumb{width:16px;height:16px;border-radius:50%;background:#F5A623;cursor:pointer;border:none}
+.song-editor{background:#1C1C22;border:1px solid #F5A623;border-radius:8px;padding:12px;margin:4px 0;display:flex;flex-direction:column;gap:10px}
+.song-editor-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.progress-bar-wrap{width:100%;background:#242430;border-radius:4px;height:4px;margin-top:6px;overflow:hidden}
+.progress-bar-fill{height:100%;border-radius:4px;background:#F5A623;transition:width .4s ease}
+.field-input{background:#242430;border:1px solid #2a2a35;border-radius:8px;color:#E8E8F0;padding:7px 10px;font-size:14px;outline:none;transition:border-color .2s;width:100%}
+.field-input:focus{border-color:#F5A623}
+.rating-num-badge{font-family:'Space Grotesk',sans-serif;font-size:16px;font-weight:700;min-width:36px;text-align:center;color:#F5A623}
+.review-textarea{background:#242430;border:1px solid #2a2a35;border-radius:8px;color:#E8E8F0;padding:10px 12px;font-size:14px;outline:none;resize:vertical;min-height:90px;width:100%;transition:border-color .2s;line-height:1.6}
+.review-textarea:focus{border-color:#F5A623}
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.8);backdrop-filter:blur(6px);z-index:300;display:flex;align-items:center;justify-content:center;padding:20px}
+.modal{background:#141416;border:1px solid #38384a;border-radius:20px;width:100%;max-width:680px;max-height:90vh;overflow-y:auto;padding:32px}
+.modal-title{font-family:'Space Grotesk',sans-serif;font-size:22px;font-weight:700;margin-bottom:24px}
+.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.form-group{display:flex;flex-direction:column;gap:6px}
+.form-group.full{grid-column:1/-1}
+.form-label{font-size:12px;font-weight:600;color:#9090A8;letter-spacing:.5px;text-transform:uppercase}
+.modal-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:24px;padding-top:20px;border-top:1px solid #2a2a35}
+.stats-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:16px;margin-bottom:28px}
+.stat-card{background:#1C1C22;border:1px solid #2a2a35;border-radius:14px;padding:20px;display:flex;flex-direction:column;gap:6px}
+.stat-value{font-family:'Space Grotesk',sans-serif;font-size:32px;font-weight:700;color:#F5A623}
+.stat-label{font-size:13px;color:#5a5a70}
+.tier-row{display:flex;align-items:center;gap:14px;padding:12px 0;border-bottom:1px solid #2a2a35}
+.tier-row:last-child{border-bottom:none}
+.tier-letter{font-family:'Space Grotesk',sans-serif;font-size:22px;font-weight:700;width:30px}
+.tier-bar-wrap{flex:1;background:#242430;border-radius:4px;height:8px;overflow:hidden}
+.tier-bar-fill{height:100%;border-radius:4px;transition:width .6s ease}
+.tier-count{font-size:13px;color:#9090A8;width:60px;text-align:right}
+.ranking-row{display:flex;align-items:center;gap:16px;padding:14px 16px;background:#1C1C22;border:1px solid #2a2a35;border-radius:8px;margin-bottom:8px;cursor:pointer;transition:all .15s}
+.ranking-row:hover{border-color:#38384a;background:#242430}
+.rank-num{font-family:'Space Grotesk',sans-serif;font-size:22px;font-weight:700;color:#5a5a70;width:36px}
+.rank-cover{width:52px;height:52px;border-radius:8px;background:#242430;flex-shrink:0;overflow:hidden;display:flex;align-items:center;justify-content:center;font-size:24px}
+.rank-cover img{width:100%;height:100%;object-fit:cover}
+.rank-info{flex:1;min-width:0}
+.rank-title{font-family:'Space Grotesk',sans-serif;font-size:15px;font-weight:700}
+.rank-artist{font-size:13px;color:#9090A8}
+.rank-songs{font-size:11px;color:#5a5a70;margin-top:2px}
+.artist-card{background:#1C1C22;border:1px solid #2a2a35;border-radius:14px;padding:20px;margin-bottom:12px}
+.artist-name{font-family:'Space Grotesk',sans-serif;font-size:18px;font-weight:700;margin-bottom:12px}
+.artist-meta{display:flex;gap:24px;flex-wrap:wrap}
+.artist-stat{display:flex;flex-direction:column;gap:2px}
+.artist-stat-val{font-family:'Space Grotesk',sans-serif;font-size:20px;font-weight:700;color:#F5A623}
+.artist-stat-lbl{font-size:11px;color:#5a5a70}
+.log-entry{display:flex;gap:14px;padding:14px 16px;background:#1C1C22;border:1px solid #2a2a35;border-radius:8px;margin-bottom:8px;align-items:flex-start}
+.log-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;margin-top:5px}
+.log-content{flex:1;min-width:0}
+.log-title{font-size:14px;font-weight:600;margin-bottom:3px}
+.log-sub{font-size:12px;color:#5a5a70;line-height:1.5}
+.log-time{font-size:11px;color:#5a5a70;flex-shrink:0;white-space:nowrap}
+.log-diff{display:inline-flex;align-items:center;gap:6px;font-family:'Space Grotesk',sans-serif;font-size:13px;font-weight:700}
+.log-arrow{color:#5a5a70;font-size:11px}
+.compare-panel{background:#141416;border:1px solid #38384a;border-radius:20px;width:100%;max-width:900px;overflow:hidden;margin:auto}
+.compare-header{padding:24px 28px;background:#1C1C22;border-bottom:1px solid #2a2a35;display:flex;align-items:center;gap:12px}
+.compare-col{flex:1;min-width:0}
+.compare-album-header{display:flex;flex-direction:column;align-items:center;text-align:center;gap:10px;padding:20px}
+.compare-album-cover{width:100px;height:100px;border-radius:12px;background:#242430;overflow:hidden;display:flex;align-items:center;justify-content:center;font-size:40px}
+.compare-album-cover img{width:100%;height:100%;object-fit:cover}
+.compare-body{padding:0 0 24px}
+.compare-row{display:grid;grid-template-columns:1fr 60px 1fr;gap:0;padding:12px 24px;border-bottom:1px solid #2a2a35;align-items:center}
+.compare-row:last-child{border-bottom:none}
+.compare-row:hover{background:#1C1C22}
+.compare-cell-left{text-align:right;font-size:14px}
+.compare-cell-mid{text-align:center;font-size:11px;color:#5a5a70;padding:0 8px;font-weight:600;letter-spacing:.5px}
+.compare-cell-right{text-align:left;font-size:14px}
+.compare-winner{font-weight:700;color:#F5A623}
+.compare-song-row{display:grid;grid-template-columns:1fr auto auto auto 1fr;gap:8px;padding:8px 24px;align-items:center;border-bottom:1px solid #2a2a35}
+.compare-song-row:hover{background:#1C1C22}
+.compare-song-left{text-align:right;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.compare-song-right{text-align:left;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.compare-song-score{font-family:'Space Grotesk',sans-serif;font-size:13px;font-weight:700;min-width:32px;text-align:center}
+.empty-state{text-align:center;padding:80px 24px;color:#5a5a70}
+.empty-state .big-icon{font-size:64px;margin-bottom:16px}
+.empty-state h2{font-family:'Space Grotesk',sans-serif;font-size:22px;color:#9090A8;margin-bottom:8px}
+.empty-state p{font-size:14px;max-width:360px;margin:0 auto 24px;line-height:1.6}
+.toast{position:fixed;bottom:24px;right:24px;z-index:500;background:#1C1C22;border:1px solid #38384a;border-radius:10px;padding:12px 18px;font-size:14px;color:#E8E8F0;animation:slideUp .3s ease;display:flex;align-items:center;gap:8px}
+.undo-bar{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:450;background:#1C1C22;border:1px solid #38384a;border-radius:40px;padding:10px 20px;display:flex;align-items:center;gap:14px;box-shadow:0 8px 32px rgba(0,0,0,.6);animation:slideUp .3s ease;font-size:14px}
+@keyframes slideUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
+@media(max-width:768px){
+  .sidebar{width:60px}
+  .sidebar-logo .logo-text,.nav-btn .nav-label,.sidebar-stats{display:none}
+  .sidebar-logo{justify-content:center;padding:16px 8px}
+  .nav-btn{justify-content:center;padding:10px}
+  .album-grid{grid-template-columns:1fr}
+  .form-grid{grid-template-columns:1fr}
+  .detail-header{flex-direction:column;align-items:flex-start}
+  .compare-row{grid-template-columns:1fr 40px 1fr}
+}
+#root{display:flex;flex-direction:column;min-height:100vh}
+/* ── Auth / Login screen ─────────────────────────────────────────────── */
+.auth-screen{display:flex;align-items:center;justify-content:center;min-height:100vh;background:#0D0D0F}
+.auth-card{background:#141416;border:1px solid #2a2a35;border-radius:20px;padding:48px 40px;text-align:center;max-width:380px;width:100%}
+.auth-logo{font-family:'Space Grotesk',sans-serif;font-size:28px;font-weight:700;color:#F5A623;margin-bottom:8px}
+.auth-tagline{font-size:14px;color:#5a5a70;margin-bottom:36px}
+.auth-btn-google{display:inline-flex;align-items:center;gap:12px;padding:12px 24px;border-radius:30px;font-size:15px;font-weight:600;background:#fff;color:#1a1a1a;border:none;cursor:pointer;transition:all .15s;width:100%;justify-content:center}
+.auth-btn-google:hover{background:#f0f0f0;transform:translateY(-1px)}
+.auth-btn-google img{width:20px;height:20px}
+.auth-error{color:#FF6B6B;font-size:13px;margin-top:16px}
+.auth-loading{color:#5a5a70;font-size:14px;margin-top:12px}
+.sync-indicator{font-size:11px;color:#5a5a70;display:flex;align-items:center;gap:5px;padding:4px 10px;border-radius:20px;background:#1C1C22}
+.sync-dot{width:6px;height:6px;border-radius:50%;background:#81C784;flex-shrink:0}
+.sync-dot.syncing{background:#F5A623;animation:pulse 1s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useRef, useMemo } = React;
+
+// ── Firebase helpers (auth + firestore) ───────────────────────────────────
+
+function LoginScreen() {
+  const [error, setError] = React.useState(null);
+  const [busy,  setBusy]  = React.useState(false);
+  async function signIn() {
+    setBusy(true); setError(null);
+    try {
+      const provider = new firebase.auth.GoogleAuthProvider();
+      await auth.signInWithPopup(provider);
+    } catch(e) {
+      setError(e.message);
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="auth-screen">
+      <div className="auth-card">
+        <div className="auth-logo">🎧 Waxify</div>
+        <div className="auth-tagline">Your personal album rating vault</div>
+        <button className="auth-btn-google" onClick={signIn} disabled={busy}>
+          <svg width="20" height="20" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9 3.2l6.7-6.7C35.8 2.3 30.3 0 24 0 14.7 0 6.7 5.4 2.8 13.3l7.8 6C12.4 13 17.8 9.5 24 9.5z"/><path fill="#4285F4" d="M46.5 24.5c0-1.6-.1-3.1-.4-4.5H24v8.5h12.7c-.6 3-2.3 5.5-4.8 7.2l7.5 5.8c4.4-4 7.1-10 7.1-17z"/><path fill="#FBBC05" d="M10.6 28.7A14.6 14.6 0 0 1 9.5 24c0-1.6.3-3.2.8-4.7l-7.8-6A24 24 0 0 0 0 24c0 3.9.9 7.5 2.5 10.8l8.1-6.1z"/><path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.5-5.8c-2.1 1.4-4.8 2.2-8.4 2.2-6.2 0-11.6-4.2-13.4-9.9l-8.1 6.1C6.7 42.6 14.7 48 24 48z"/></svg>
+          {busy ? "Signing in…" : "Sign in with Google"}
+        </button>
+        {error && <div className="auth-error">{error}</div>}
+        <div className="auth-loading" style={{marginTop:24,fontSize:12}}>Access is restricted to authorised accounts only.</div>
+      </div>
+    </div>
+  );
+}
+
+function SyncIndicator({ syncing }) {
+  return (
+    <div className="sync-indicator">
+      <div className={"sync-dot" + (syncing ? " syncing" : "")}/>
+      {syncing ? "Saving…" : "Synced"}
+    </div>
+  );
+}
+
+// ── Root component that handles auth gating ───────────────────────────────
+function Root() {
+  const [user,    setUser]    = React.useState(undefined); // undefined = loading
+  React.useEffect(() => {
+    return auth.onAuthStateChanged(u => setUser(u || null));
+  }, []);
+  if (user === undefined) return (
+    <div className="auth-screen">
+      <div style={{color:"#5a5a70",fontSize:14}}>Loading…</div>
+    </div>
+  );
+  if (!user) return <LoginScreen/>;
+  return <App user={user}/>;
+}
+
+function getTier(avg) {
+  if (avg === null || avg === undefined) return null;
+  if (avg >= 9.5) return { label: "S", color: "#FF6B6B", bg: "rgba(255,107,107,0.15)" };
+  if (avg >= 8.5) return { label: "A", color: "#F5A623", bg: "rgba(245,166,35,0.15)" };
+  if (avg >= 7.5) return { label: "B", color: "#4FC3F7", bg: "rgba(79,195,247,0.15)" };
+  if (avg >= 6.0) return { label: "C", color: "#81C784", bg: "rgba(129,199,132,0.15)" };
+  if (avg >= 4.0) return { label: "D", color: "#CE93D8", bg: "rgba(206,147,216,0.15)" };
+  return { label: "F", color: "#90A4AE", bg: "rgba(144,164,174,0.15)" };
+}
+function calcAlbumAvg(songs) {
+  const rated = songs.filter(s => s.rating !== null && s.rating !== undefined && s.rating !== "");
+  if (!rated.length) return null;
+  return rated.reduce((sum, s) => sum + Number(s.rating), 0) / rated.length;
+}
+function getFavSong(songs) {
+  const rated = songs.filter(s => s.rating !== null && s.rating !== "");
+  if (!rated.length) return null;
+  return rated.reduce((best, s) => (Number(s.rating) > Number(best.rating) ? s : best));
+}
+function getDisplayFav(album) {
+  if (album._pickedFavId) {
+    const picked = album.songs.find(s => s.id === album._pickedFavId);
+    if (picked) return picked;
+  }
+  return getFavSong(album.songs);
+}
+function formatDate(iso) {
+  if (!iso) return "";
+  return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+function formatDateTime(iso) {
+  if (!iso) return "";
+  return new Date(iso).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+}
+function ratingColor(n) {
+  if (n === null || n === undefined || n === "") return "#5a5a70";
+  const v = Number(n);
+  if (v >= 8.5) return "#F5A623";
+  if (v >= 7) return "#4FC3F7";
+  if (v >= 5) return "#81C784";
+  return "#CE93D8";
+}
+
+function ScoreRing({ score, size = 56 }) {
+  const r = (size - 8) / 2;
+  const circ = 2 * Math.PI * r;
+  const pct = score !== null ? score / 10 : 0;
+  const c = score === null ? "#333" : score >= 8.5 ? "#F5A623" : score >= 7 ? "#4FC3F7" : score >= 5 ? "#81C784" : "#CE93D8";
+  return (
+    <svg width={size} height={size} style={{ transform: "rotate(-90deg)", flexShrink: 0 }}>
+      <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="#1e1e24" strokeWidth={5}/>
+      <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={c} strokeWidth={5}
+        strokeDasharray={circ} strokeDashoffset={circ*(1-pct)} strokeLinecap="round"
+        style={{transition:"stroke-dashoffset 0.6s ease,stroke 0.4s"}}/>
+      <text x={size/2} y={size/2+1} textAnchor="middle" dominantBaseline="middle"
+        style={{fill:score===null?"#555":c, fontSize:size<50?11:13, fontWeight:700,
+          fontFamily:"Space Grotesk,sans-serif", transform:`rotate(90deg)`,
+          transformOrigin:`${size/2}px ${size/2}px`}}>
+        {score===null?"—":score.toFixed(1)}
+      </text>
+    </svg>
+  );
+}
+
+const EMPTY_SONG = () => ({ id: crypto.randomUUID(), title: "", rating: null, note: "" });
+const EMPTY_ALBUM = () => ({
+  id: crypto.randomUUID(), title: "", artist: "", year: "", genre: "",
+  cover: null, songs: [EMPTY_SONG()], review: "", dateAdded: new Date().toISOString(),
+});
+
+function App({ user }) {
+  const [albums, setAlbums] = useState([]);
+  const [log,    setLog]    = useState([]);
+  const [view, setView] = useState("library");
+  const [search, setSearch] = useState("");
+  const [filterTier, setFilterTier] = useState("all");
+  const [sortBy, setSortBy] = useState("dateAdded");
+  const [selectedAlbum, setSelectedAlbum] = useState(null);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [editingAlbum, setEditingAlbum] = useState(null);
+  const [compareIds, setCompareIds] = useState([]);
+  const [showCompare, setShowCompare] = useState(false);
+  const [toast, setToast] = useState(null);
+  const [undoData, setUndoData] = useState(null);
+  const [compareMode, setCompareMode] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [dataLoaded, setDataLoaded] = useState(false);
+
+  // ── Load from Firestore on mount ────────────────────────────────────────
+  useEffect(() => {
+    async function load() {
+      try {
+        const [albumsSnap, logSnap] = await Promise.all([
+          fbDoc(user.uid, "albums").get(),
+          fbDoc(user.uid, "log").get()
+        ]);
+        if (albumsSnap.exists) setAlbums(albumsSnap.data().list || []);
+        if (logSnap.exists)   setLog(logSnap.data().list || []);
+      } catch(e) { console.error("Firestore load error", e); }
+      setDataLoaded(true);
+    }
+    load();
+  }, [user.uid]);
+
+  // ── Save albums to Firestore whenever they change (debounced 800 ms) ────
+  const albumsSaveTimer = useRef(null);
+  useEffect(() => {
+    if (!dataLoaded) return;
+    clearTimeout(albumsSaveTimer.current);
+    setSyncing(true);
+    albumsSaveTimer.current = setTimeout(async () => {
+      try {
+        await fbDoc(user.uid, "albums").set({ list: albums });
+      } catch(e) { console.error("Firestore save (albums) error", e); }
+      setSyncing(false);
+    }, 800);
+  }, [albums, dataLoaded]);
+
+  // ── Save log to Firestore whenever it changes (debounced 800 ms) ────────
+  const logSaveTimer = useRef(null);
+  useEffect(() => {
+    if (!dataLoaded) return;
+    clearTimeout(logSaveTimer.current);
+    logSaveTimer.current = setTimeout(async () => {
+      try {
+        await fbDoc(user.uid, "log").set({ list: log.slice(0, 500) });
+      } catch(e) { console.error("Firestore save (log) error", e); }
+    }, 800);
+  }, [log, dataLoaded]);
+
+  function addLog(entry) {
+    setLog(prev => [{ ...entry, id: crypto.randomUUID(), ts: new Date().toISOString() }, ...prev]);
+  }
+  function showToast(msg, icon = "✓") { setToast({ msg, icon }); setTimeout(() => setToast(null), 2500); }
+  function handleSignOut() { auth.signOut(); }
+
+  function saveAlbum(album, logEntries = []) {
+    setAlbums(prev => {
+      const idx = prev.findIndex(a => a.id === album.id);
+      if (idx === -1) return [...prev, album];
+      const next = [...prev]; next[idx] = album; return next;
+    });
+    if (selectedAlbum && selectedAlbum.id === album.id) setSelectedAlbum(album);
+    logEntries.forEach(e => addLog(e));
+    showToast("Saved");
+  }
+  function deleteAlbum(id) {
+    const album = albums.find(a => a.id === id);
+    setUndoData({ album, timeout: setTimeout(() => setUndoData(null), 6000) });
+    setAlbums(prev => prev.filter(a => a.id !== id));
+    setSelectedAlbum(null);
+    addLog({ type: "delete", albumTitle: album.title, albumArtist: album.artist });
+    showToast("Album deleted", "🗑");
+  }
+  function undoDelete() {
+    if (!undoData) return;
+    clearTimeout(undoData.timeout);
+    setAlbums(prev => [...prev, undoData.album]);
+    setUndoData(null);
+    showToast("Restored!", "↩️");
+  }
+  function handleExport() {
+    const blob = new Blob([JSON.stringify({ albums, log }, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = `waxify-${new Date().toISOString().slice(0,10)}.json`;
+    a.click(); URL.revokeObjectURL(url); showToast("Exported", "💾");
+  }
+  function handleImport(e) {
+    const file = e.target.files[0]; if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      try {
+        const data = JSON.parse(ev.target.result);
+        if (data.albums) { setAlbums(data.albums); if (data.log) setLog(data.log); showToast(`Imported ${data.albums.length} albums`, "📂"); }
+        else if (Array.isArray(data)) { setAlbums(data); showToast(`Imported ${data.length} albums`, "📂"); }
+      } catch { showToast("Invalid file", "✗"); }
+    };
+    reader.readAsText(file); e.target.value = "";
+  }
+  function toggleCompare(id) {
+    setCompareIds(prev => {
+      if (prev.includes(id)) return prev.filter(x => x !== id);
+      if (prev.length >= 2) return [prev[1], id];
+      return [...prev, id];
+    });
+  }
+
+  const filtered = useMemo(() => {
+    let list = albums.map(a => ({ ...a, avg: calcAlbumAvg(a.songs) }));
+    if (search) { const q = search.toLowerCase(); list = list.filter(a => a.title.toLowerCase().includes(q) || a.artist.toLowerCase().includes(q) || (a.genre && a.genre.toLowerCase().includes(q))); }
+    if (filterTier !== "all") list = list.filter(a => getTier(a.avg) && getTier(a.avg).label === filterTier);
+    list.sort((a, b) => {
+      if (sortBy === "rating") return (b.avg != null ? b.avg : -1) - (a.avg != null ? a.avg : -1);
+      if (sortBy === "title") return a.title.localeCompare(b.title);
+      if (sortBy === "artist") return a.artist.localeCompare(b.artist);
+      if (sortBy === "year") return (b.year || 0) - (a.year || 0);
+      return new Date(b.dateAdded) - new Date(a.dateAdded);
+    });
+    return list;
+  }, [albums, search, filterTier, sortBy]);
+
+  const ranked = useMemo(() => albums.map(a => ({ ...a, avg: calcAlbumAvg(a.songs) })).filter(a => a.avg !== null).sort((a, b) => b.avg - a.avg), [albums]);
+
+  const artistStats = useMemo(() => {
+    const map = {};
+    albums.forEach(a => {
+      if (!a.artist) return;
+      if (!map[a.artist]) map[a.artist] = { albums: 0, totalAvg: 0, ratedAlbums: 0, songs: 0, topAlbum: null };
+      const avg = calcAlbumAvg(a.songs);
+      map[a.artist].albums++;
+      map[a.artist].songs += a.songs.length;
+      if (avg !== null) {
+        map[a.artist].totalAvg += avg;
+        map[a.artist].ratedAlbums++;
+        if (!map[a.artist].topAlbum || avg > calcAlbumAvg(map[a.artist].topAlbum.songs)) map[a.artist].topAlbum = a;
+      }
+    });
+    return Object.entries(map).map(([name, s]) => ({ name, ...s, avgRating: s.ratedAlbums ? s.totalAvg / s.ratedAlbums : null })).sort((a, b) => (b.avgRating != null ? b.avgRating : -1) - (a.avgRating != null ? a.avgRating : -1));
+  }, [albums]);
+
+  const globalStats = useMemo(() => {
+    const ratedAlbums = albums.filter(a => calcAlbumAvg(a.songs) !== null);
+    const allSongs = albums.flatMap(a => a.songs).filter(s => s.rating !== null && s.rating !== "");
+    return {
+      total: albums.length, rated: ratedAlbums.length,
+      avgScore: ratedAlbums.length ? ratedAlbums.reduce((s, a) => s + calcAlbumAvg(a.songs), 0) / ratedAlbums.length : null,
+      topAlbum: ranked[0] || null,
+      totalSongs: albums.reduce((s, a) => s + a.songs.length, 0),
+      ratedSongs: allSongs.length
+    };
+  }, [albums, ranked]);
+
+  const compareAlbums = compareIds.map(id => albums.find(a => a.id === id)).filter(Boolean);
+  const navItems = [
+    { id: "library", icon: "🎵", label: "Library" },
+    { id: "rankings", icon: "🏆", label: "Rankings" },
+    { id: "artists", icon: "🎤", label: "Artists" },
+    { id: "stats", icon: "📊", label: "Statistics" },
+    { id: "log", icon: "📋", label: "Edit Log" },
+  ];
+
+  return (
+    <div className="app">
+      <aside className="sidebar">
+        <div className="sidebar-logo"><span>🎧</span><span className="logo-text">Waxify</span></div>
+        <nav className="sidebar-nav">
+          {navItems.map(n => (
+            <button key={n.id} className={"nav-btn" + (view === n.id ? " active" : "")} onClick={() => setView(n.id)}>
+              <span className="icon">{n.icon}</span><span className="nav-label">{n.label}</span>
+              {n.id === "log" && log.length > 0 && <span style={{marginLeft:"auto",background:"rgba(245,166,35,.12)",color:"#F5A623",fontSize:10,padding:"1px 6px",borderRadius:10,fontWeight:700}}>{log.length}</span>}
+            </button>
+          ))}
+        </nav>
+        <div className="sidebar-stats">
+          <div className="sidebar-stat"><strong>{globalStats.total}</strong> albums</div>
+          <div className="sidebar-stat"><strong>{globalStats.totalSongs}</strong> songs</div>
+          {globalStats.avgScore !== null && <div className="sidebar-stat">Avg: <strong>{globalStats.avgScore.toFixed(2)}</strong></div>}
+        </div>
+      </aside>
+
+      <div className="main">
+        <div className="topbar">
+          <div className="topbar-title">
+            {view === "library" && "My Library"}
+            {view === "rankings" && "Top Albums"}
+            {view === "artists" && "Artists"}
+            {view === "stats" && "Statistics"}
+            {view === "log" && "Edit Log"}
+          </div>
+          {view === "library" && (
+            <>
+              <div className="search-box">
+                <span className="search-icon">🔍</span>
+                <input placeholder="Search albums, artists…" value={search} onChange={e => setSearch(e.target.value)} />
+              </div>
+              <button className={"btn btn-sm " + (compareMode ? "btn-primary" : "btn-ghost")} onClick={() => { setCompareMode(m => !m); setCompareIds([]); }}>
+                {compareMode ? "✓ Comparing" : "⚖️ Compare"}
+              </button>
+              <button className="btn btn-ghost btn-sm" onClick={handleExport}>💾 Export</button>
+              <label className="btn btn-ghost btn-sm" style={{cursor:"pointer"}}>📂 Import<input type="file" accept=".json" style={{display:"none"}} onChange={handleImport} /></label>
+              <button className="btn btn-primary" onClick={() => setShowAddModal(true)}>＋ Add Album</button>
+              <SyncIndicator syncing={syncing}/>
+              <button className="btn btn-ghost btn-sm" title={"Signed in as "+user.email} onClick={handleSignOut} style={{gap:6}}>
+                {user.photoURL ? <img src={user.photoURL} style={{width:20,height:20,borderRadius:"50%",objectFit:"cover"}} alt=""/> : "👤"}
+                Sign out
+              </button>
+            </>
+          )}
+        </div>
+
+        <div className="content">
+          {view === "library" && <LibraryView albums={filtered} filterTier={filterTier} setFilterTier={setFilterTier} sortBy={sortBy} setSortBy={setSortBy} onSelect={a => { if (!compareMode) setSelectedAlbum(a); }} onAdd={() => setShowAddModal(true)} compareMode={compareMode} compareIds={compareIds} toggleCompare={toggleCompare} />}
+          {view === "rankings" && <RankingsView ranked={ranked} onSelect={a => { setSelectedAlbum(a); setView("library"); }} />}
+          {view === "artists" && <ArtistView stats={artistStats} onSelect={artist => { setSearch(artist); setView("library"); }} />}
+          {view === "stats" && <StatsView albums={albums} globalStats={globalStats} ranked={ranked} />}
+          {view === "log" && <LogView log={log} albums={albums} onClear={() => { setLog([]); showToast("Log cleared", "🗑"); }} />}
+        </div>
+      </div>
+
+      {selectedAlbum && <AlbumDetail album={selectedAlbum} onClose={() => setSelectedAlbum(null)} onSave={saveAlbum} onDelete={deleteAlbum} onEdit={() => { setEditingAlbum(selectedAlbum); setSelectedAlbum(null); }} />}
+      {(showAddModal || editingAlbum) && <AlbumModal initial={editingAlbum} onClose={() => { setShowAddModal(false); setEditingAlbum(null); }} onSave={a => { saveAlbum(a, [{ type: editingAlbum ? "edit" : "add", albumTitle: a.title, albumArtist: a.artist }]); setShowAddModal(false); setEditingAlbum(null); }} />}
+
+      {compareMode && compareIds.length === 2 && !showCompare && (
+        <div className="compare-bar">
+          {compareAlbums.map(a => (
+            <div key={a.id} className="compare-bar-slot">
+              <div className="compare-bar-cover">{a.cover ? <img src={a.cover} alt="" /> : "🎵"}</div>
+              <div>
+                <div className="compare-bar-title">{a.title}</div>
+                <div style={{fontSize:11,color:"#5a5a70"}}>{calcAlbumAvg(a.songs) != null ? calcAlbumAvg(a.songs).toFixed(2) : "—"}</div>
+              </div>
+            </div>
+          ))}
+          <span className="compare-vs">VS</span>
+          <button className="btn btn-primary btn-sm" onClick={() => setShowCompare(true)}>Compare →</button>
+          <button className="btn btn-ghost btn-sm" onClick={() => setCompareIds([])}>✕</button>
+        </div>
+      )}
+      {showCompare && compareAlbums.length === 2 && (
+        <div className="detail-overlay" onClick={e => e.target === e.currentTarget && setShowCompare(false)}>
+          <ComparePanel albums={compareAlbums} onClose={() => setShowCompare(false)} />
+        </div>
+      )}
+      {undoData && (
+        <div className="undo-bar">
+          <span>Album deleted</span>
+          <button className="btn btn-ghost btn-sm" onClick={undoDelete}>↩️ Undo</button>
+          <button className="btn btn-ghost btn-sm" onClick={() => { clearTimeout(undoData.timeout); setUndoData(null); }}>✕</button>
+        </div>
+      )}
+      {toast && <div className="toast"><span>{toast.icon}</span>{toast.msg}</div>}
+    </div>
+  );
+}
+
+function LibraryView({ albums, filterTier, setFilterTier, sortBy, setSortBy, onSelect, onAdd, compareMode, compareIds, toggleCompare }) {
+  const tiers = ["all","S","A","B","C","D","F"];
+  return (
+    <>
+      <div className="filters">
+        {tiers.map(t => <button key={t} className={"filter-chip"+(filterTier===t?" active":"")} onClick={() => setFilterTier(t)}>{t==="all"?"All tiers":t+" tier"}</button>)}
+        <div style={{flex:1}}/>
+        {compareMode && <span style={{fontSize:13,color:"#4FC3F7",fontWeight:600}}>Select 2 albums to compare</span>}
+        <select className="filter-select" value={sortBy} onChange={e => setSortBy(e.target.value)}>
+          <option value="dateAdded">Date added</option>
+          <option value="rating">Rating</option>
+          <option value="title">Title</option>
+          <option value="artist">Artist</option>
+          <option value="year">Year</option>
+        </select>
+      </div>
+      {albums.length === 0 ? (
+        <div className="empty-state">
+          <div className="big-icon">🎵</div>
+          <h2>No albums yet</h2>
+          <p>Add your first album to start rating and reviewing your music collection.</p>
+          <button className="btn btn-primary" onClick={onAdd}>＋ Add your first album</button>
+        </div>
+      ) : (
+        <div className="album-grid">
+          {albums.map((album,i) => <AlbumCard key={album.id} album={album} rank={i+1} onClick={() => onSelect(album)} compareMode={compareMode} isCompareSelected={compareIds.includes(album.id)} toggleCompare={toggleCompare} />)}
+        </div>
+      )}
+    </>
+  );
+}
+
+function AlbumCard({ album, rank, onClick, compareMode, isCompareSelected, toggleCompare }) {
+  const avg = album.avg;
+  const tier = getTier(avg);
+  const fav = getDisplayFav(album);
+  return (
+    <div className={"album-card"+(isCompareSelected?" compare-selected":"")} onClick={compareMode ? () => toggleCompare(album.id) : onClick}>
+      <div className="album-cover">
+        {album.cover ? <img src={album.cover} alt={album.title}/> : <div className="album-cover-placeholder" style={{fontSize:48}}>🎵</div>}
+        {compareMode ? <div className={"compare-check"+(isCompareSelected?" checked":"")}>{isCompareSelected?"✓":""}</div> : <div className="album-rank">#{rank}</div>}
+        {tier && <div className="tier-badge" style={{color:tier.color,background:tier.bg}}>{tier.label}</div>}
+      </div>
+      <div className="album-card-body">
+        <div className="album-card-top">
+          <div className="album-card-info">
+            <div className="album-title">{album.title||"Untitled"}</div>
+            <div className="album-artist">{album.artist||"Unknown Artist"}</div>
+          </div>
+          <ScoreRing score={avg} size={52}/>
+        </div>
+        <div className="album-meta">
+          {album.year && <span className="meta-tag">{album.year}</span>}
+          {album.genre && <span className="meta-tag">{album.genre}</span>}
+          <span className="meta-tag">{album.songs.length} tracks</span>
+        </div>
+        {fav && <div className="album-fav">⭐ <strong>{fav.title||"Track "+(album.songs.indexOf(fav)+1)}</strong> ({Number(fav.rating).toFixed(1)})</div>}
+        <div style={{fontSize:11,color:"#5a5a70"}}>Added {formatDate(album.dateAdded)}</div>
+      </div>
+    </div>
+  );
+}
+
+function AlbumDetail({ album, onClose, onSave, onDelete, onEdit }) {
+  const [data, setData] = useState(() => JSON.parse(JSON.stringify(album)));
+  const [editingSongId, setEditingSongId] = useState(null);
+  const [pickedFavId, setPickedFavId] = useState(album._pickedFavId || null);
+  const fileRef = useRef();
+  const prevRatings = useRef({});
+
+  useEffect(() => {
+    const snap = {};
+    album.songs.forEach(s => { snap[s.id] = s.rating; });
+    prevRatings.current = snap;
+  }, []);
+
+  const avg = calcAlbumAvg(data.songs);
+  const tier = getTier(avg);
+  const autoFav = getFavSong(data.songs);
+  const perfectSongs = data.songs.filter(s => s.rating !== null && s.rating !== "" && Number(s.rating) === 10);
+  const hasPerfectPick = perfectSongs.length >= 2;
+  const displayFav = (hasPerfectPick && pickedFavId) ? (data.songs.find(s => s.id === pickedFavId) || autoFav) : autoFav;
+
+  function updateSong(id, field, val) {
+    setData(d => ({ ...d, songs: d.songs.map(s => s.id === id ? { ...s, [field]: val } : s) }));
+  }
+  function save() {
+    const entries = [];
+    data.songs.forEach(s => {
+      const prev = prevRatings.current[s.id];
+      const curr = s.rating;
+      if (curr !== prev && (curr !== null || prev !== null)) {
+        entries.push({ type:"rating", albumTitle:data.title, albumArtist:data.artist, songTitle:s.title||("Track "+(data.songs.indexOf(s)+1)), prevRating:prev, newRating:curr });
+      }
+    });
+    const validPickedFavId = (hasPerfectPick && pickedFavId && data.songs.find(s => s.id === pickedFavId)) ? pickedFavId : null;
+    onSave({ ...data, _pickedFavId: validPickedFavId }, entries);
+  }
+  function handleCoverUpload(e) {
+    const file = e.target.files[0]; if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => setData(d => ({ ...d, cover: ev.target.result }));
+    reader.readAsDataURL(file);
+  }
+
+  return (
+    <div className="detail-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="detail-panel">
+        <div className="detail-header">
+          <div className="detail-cover">
+            {data.cover ? <img src={data.cover} alt={data.title}/> : <span>🎵</span>}
+            <div className="detail-cover-upload" onClick={() => fileRef.current.click()}>🖼</div>
+            <input ref={fileRef} type="file" accept="image/*" style={{display:"none"}} onChange={handleCoverUpload}/>
+          </div>
+          <div className="detail-info">
+            <div className="detail-title">{data.title||"Untitled Album"}</div>
+            <div className="detail-artist">{data.artist||"Unknown Artist"}</div>
+            <div className="detail-badges">
+              {data.year && <span className="meta-tag">{data.year}</span>}
+              {data.genre && <span className="meta-tag">{data.genre}</span>}
+              {tier && <span className="tier-badge" style={{color:tier.color,background:tier.bg,position:"static"}}>{tier.label} tier</span>}
+            </div>
+            <div className="detail-score-area">
+              <ScoreRing score={avg} size={64}/>
+              <div>
+                <div style={{fontSize:13,color:"#5a5a70"}}>Album average</div>
+                <div style={{display:"flex",alignItems:"baseline",gap:4}}>
+                  <span className="score-big">{avg!==null?avg.toFixed(2):"—"}</span>
+                  {avg!==null && <span className="score-suffix">/10</span>}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div className="detail-body">
+          <div className="section-label">Tracklist <span style={{color:"#5a5a70",fontWeight:400,textTransform:"none",letterSpacing:0,fontSize:12,marginLeft:8}}>{data.songs.filter(s=>s.rating!==null&&s.rating!=="").length}/{data.songs.length} rated</span></div>
+          <div className="progress-bar-wrap" style={{marginBottom:14}}>
+            <div className="progress-bar-fill" style={{width:(data.songs.filter(s=>s.rating!==null&&s.rating!=="").length/Math.max(data.songs.length,1)*100)+"%"}}/>
+          </div>
+          <div className="song-list">
+            {data.songs.map((song,i) => {
+              const isFav = displayFav && displayFav.id === song.id;
+              const rn = (song.rating!==null&&song.rating!=="") ? Number(song.rating) : null;
+              if (editingSongId === song.id) {
+                return (
+                  <div key={song.id} className="song-editor">
+                    <div className="song-editor-row">
+                      <span style={{fontSize:12,color:"#5a5a70",width:22,textAlign:"right"}}>{i+1}</span>
+                      <input className="field-input" style={{flex:1}} placeholder="Song title" value={song.title} onChange={e => updateSong(song.id,"title",e.target.value)} autoFocus/>
+                    </div>
+                    <div style={{display:"flex",alignItems:"center",gap:12,padding:"4px 0"}}>
+                      <span style={{fontSize:12,color:"#5a5a70",width:22}}/>
+                      <div className="rating-slider-wrap">
+                        <input type="range" className="rating-slider" min="0" max="10" step="0.1" value={song.rating!=null?song.rating:0} onChange={e => updateSong(song.id,"rating",Number(e.target.value))}/>
+                      </div>
+                      <span className="rating-num-badge" style={{color:ratingColor(song.rating)}}>{rn!==null?rn.toFixed(1):"—"}</span>
+                      <button className="btn btn-ghost btn-sm" style={{fontSize:11,padding:"3px 8px"}} onClick={() => updateSong(song.id,"rating",null)}>Clear</button>
+                    </div>
+                    <div style={{display:"flex",gap:4,paddingLeft:30}}>
+                      {[0,1,2,3,4,5,6,7,8,9,10].map(n => (
+                        <button key={n} onClick={() => updateSong(song.id,"rating",n)}
+                          style={{width:24,height:24,borderRadius:6,fontSize:11,fontWeight:700,cursor:"pointer",border:"1px solid #2a2a35",
+                            background:Math.floor(rn!=null?rn:-1)===n?"#F5A623":"#242430",
+                            color:Math.floor(rn!=null?rn:-1)===n?"#000":"#5a5a70"}}>{n}</button>
+                      ))}
+                    </div>
+                    <input className="field-input" style={{marginLeft:30}} placeholder="Note (optional)" value={song.note} onChange={e => updateSong(song.id,"note",e.target.value)}/>
+                    <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+                      <button className="btn btn-ghost btn-sm" onClick={() => setEditingSongId(null)}>Done</button>
+                    </div>
+                  </div>
+                );
+              }
+              return (
+                <div key={song.id} className={"song-row"+(isFav?" fav-song":"")}>
+                  <span className="song-num">{i+1}</span>
+                  <div className="song-title-wrap">
+                    <div className="song-title-text">{song.title||<span style={{color:"#5a5a70"}}>Untitled track</span>}</div>
+                    {song.note && <div className="song-note">{song.note}</div>}
+                  </div>
+                  {isFav && <span className="song-fav-star">⭐</span>}
+                  <span className="song-rating-display" style={{color:ratingColor(rn)}}>{rn!==null?rn.toFixed(1):<span style={{color:"#5a5a70"}}>—</span>}</span>
+                  <button className="btn btn-ghost btn-sm" style={{opacity:0.5,fontSize:12}} onClick={() => setEditingSongId(song.id)}>Edit</button>
+                </div>
+              );
+            })}
+          </div>
+          <div className="section-label">Written Review</div>
+          <textarea className="review-textarea" placeholder="Write your thoughts…" value={data.review} onChange={e => setData(d => ({...d,review:e.target.value}))}/>
+          {hasPerfectPick && (
+            <div style={{marginTop:16,padding:14,background:"rgba(79,195,247,.06)",borderRadius:8,border:"1px solid rgba(79,195,247,.25)"}}>
+              <div style={{fontSize:12,fontWeight:600,color:"#4FC3F7",letterSpacing:".5px",textTransform:"uppercase",marginBottom:10}}>👑 Pick your #1 — all 10/10s</div>
+              <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+                {perfectSongs.map(s => {
+                  const selected = pickedFavId === s.id;
+                  return <button key={s.id} onClick={() => setPickedFavId(selected?null:s.id)}
+                    style={{padding:"6px 14px",borderRadius:20,fontSize:13,fontWeight:600,cursor:"pointer",
+                      border:"1px solid "+(selected?"#F5A623":"#38384a"),
+                      background:selected?"rgba(245,166,35,.12)":"#242430",
+                      color:selected?"#F5A623":"#9090A8",transition:"all .15s"}}>
+                    {selected?"⭐ ":""}{s.title||("Track "+(data.songs.indexOf(s)+1))}
+                  </button>;
+                })}
+              </div>
+            </div>
+          )}
+          {displayFav && (
+            <div style={{marginTop:12,padding:"12px 14px",background:"rgba(245,166,35,.12)",borderRadius:8,border:"1px solid rgba(245,166,35,.2)",fontSize:13}}>
+              ⭐ Favorite: <strong style={{color:"#F5A623"}}>{displayFav.title||("Track "+(data.songs.findIndex(s=>s.id===displayFav.id)+1))}</strong> — {Number(displayFav.rating).toFixed(1)}/10
+            </div>
+          )}
+          <div style={{display:"flex",gap:10,marginTop:24,paddingTop:20,borderTop:"1px solid #2a2a35",justifyContent:"space-between",flexWrap:"wrap"}}>
+            <div style={{display:"flex",gap:8}}>
+              <button className="btn btn-danger btn-sm" onClick={() => { if (window.confirm('Delete "'+album.title+'"?')) onDelete(album.id); }}>🗑 Delete</button>
+              <button className="btn btn-ghost btn-sm" onClick={onEdit}>✏️ Edit info</button>
+            </div>
+            <div style={{display:"flex",gap:10}}>
+              <button className="btn btn-ghost" onClick={onClose}>Close</button>
+              <button className="btn btn-primary" onClick={() => { save(); onClose(); }}>💾 Save</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AlbumModal({ initial, onClose, onSave }) {
+  const [data, setData] = useState(() => initial ? JSON.parse(JSON.stringify(initial)) : EMPTY_ALBUM());
+  const coverRef = useRef();
+  function set(f,v) { setData(d => ({...d,[f]:v})); }
+  function addSong() { setData(d => ({...d,songs:[...d.songs,EMPTY_SONG()]})); }
+  function removeSong(id) { setData(d => ({...d,songs:d.songs.filter(s=>s.id!==id)})); }
+  function updateSong(id,f,v) { setData(d => ({...d,songs:d.songs.map(s=>s.id===id?{...s,[f]:v}:s)})); }
+  function handleCover(e) { const file=e.target.files[0]; if(!file) return; const r=new FileReader(); r.onload=ev=>setData(d=>({...d,cover:ev.target.result})); r.readAsDataURL(file); }
+  function submit() { if(!data.title.trim()) { alert("Title required"); return; } onSave(data); }
+  return (
+    <div className="modal-overlay" onClick={e => e.target===e.currentTarget&&onClose()}>
+      <div className="modal">
+        <div className="modal-title">{initial?"Edit Album":"Add New Album"}</div>
+        <div className="form-grid">
+          <div className="form-group full">
+            <label className="form-label">Cover</label>
+            <div style={{display:"flex",alignItems:"center",gap:16}}>
+              <div style={{width:72,height:72,borderRadius:10,background:"#242430",display:"flex",alignItems:"center",justifyContent:"center",fontSize:32,overflow:"hidden",cursor:"pointer"}} onClick={() => coverRef.current.click()}>
+                {data.cover ? <img src={data.cover} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/> : "🎵"}
+              </div>
+              <button className="btn btn-ghost btn-sm" onClick={() => coverRef.current.click()}>Upload</button>
+              {data.cover && <button className="btn btn-ghost btn-sm" onClick={() => setData(d=>({...d,cover:null}))}>Remove</button>}
+              <input ref={coverRef} type="file" accept="image/*" style={{display:"none"}} onChange={handleCover}/>
+            </div>
+          </div>
+          <div className="form-group"><label className="form-label">Title *</label><input className="field-input" placeholder="Album title" value={data.title} onChange={e=>set("title",e.target.value)}/></div>
+          <div className="form-group"><label className="form-label">Artist</label><input className="field-input" placeholder="Artist name" value={data.artist} onChange={e=>set("artist",e.target.value)}/></div>
+          <div className="form-group"><label className="form-label">Year</label><input className="field-input" type="number" placeholder="2024" value={data.year} onChange={e=>set("year",e.target.value)}/></div>
+          <div className="form-group"><label className="form-label">Genre</label><input className="field-input" placeholder="Genre" value={data.genre} onChange={e=>set("genre",e.target.value)}/></div>
+          <div className="form-group full">
+            <label className="form-label">Tracks</label>
+            <div style={{display:"flex",flexDirection:"column",gap:8}}>
+              {data.songs.map((song,i) => (
+                <div key={song.id} style={{display:"flex",gap:8,alignItems:"center"}}>
+                  <span style={{fontSize:12,color:"#5a5a70",width:22,textAlign:"right",flexShrink:0}}>{i+1}</span>
+                  <input className="field-input" style={{flex:1}} placeholder={"Track "+(i+1)} value={song.title} onChange={e=>updateSong(song.id,"title",e.target.value)}/>
+                  <input className="field-input" type="number" min="0" max="10" step="0.1" placeholder="—" value={song.rating!=null?song.rating:""} onChange={e=>{const v=e.target.value;if(v===""){updateSong(song.id,"rating",null);return;}updateSong(song.id,"rating",Math.min(10,Math.max(0,Number(v))));}} style={{width:64}}/>
+                  {data.songs.length>1 && <button style={{color:"#5a5a70",padding:"4px 6px",borderRadius:6,background:"#242430",fontSize:13}} onClick={()=>removeSong(song.id)}>✕</button>}
+                </div>
+              ))}
+              <button className="btn btn-ghost btn-sm" style={{alignSelf:"flex-start",marginTop:4}} onClick={addSong}>＋ Add track</button>
+            </div>
+          </div>
+          <div className="form-group full">
+            <label className="form-label">Review</label>
+            <textarea className="review-textarea" placeholder="Your thoughts…" value={data.review} onChange={e=>set("review",e.target.value)}/>
+          </div>
+        </div>
+        <div className="modal-actions">
+          <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+          <button className="btn btn-primary" onClick={submit}>{initial?"Save changes":"Add album"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RankingsView({ ranked, onSelect }) {
+  if (!ranked.length) return <div className="empty-state"><div className="big-icon">🏆</div><h2>No rated albums yet</h2><p>Rate songs to see rankings.</p></div>;
+  return (
+    <div>
+      {ranked.map((album,i) => {
+        const tier = getTier(album.avg);
+        const fav = getDisplayFav(album);
+        return (
+          <div key={album.id} className="ranking-row" onClick={() => onSelect(album)}>
+            <div className="rank-num">{i===0?"🥇":i===1?"🥈":i===2?"🥉":"#"+(i+1)}</div>
+            <div className="rank-cover">{album.cover?<img src={album.cover} alt=""/>:"🎵"}</div>
+            <div className="rank-info">
+              <div className="rank-title">{album.title}</div>
+              <div className="rank-artist">{album.artist}{album.year?" · "+album.year:""}</div>
+              {fav && <div className="rank-songs">⭐ {fav.title} ({Number(fav.rating).toFixed(1)})</div>}
+            </div>
+            {tier && <span className="tier-badge" style={{color:tier.color,background:tier.bg,position:"static"}}>{tier.label}</span>}
+            <ScoreRing score={album.avg} size={52}/>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function ArtistView({ stats, onSelect }) {
+  if (!stats.length) return <div className="empty-state"><div className="big-icon">🎤</div><h2>No artists yet</h2></div>;
+  return (
+    <div>
+      {stats.map(a => (
+        <div key={a.name} className="artist-card">
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+            <div className="artist-name" style={{cursor:"pointer",color:"#F5A623"}} onClick={() => onSelect(a.name)}>{a.name}</div>
+            {a.avgRating!==null && <ScoreRing score={a.avgRating} size={52}/>}
+          </div>
+          <div className="artist-meta">
+            <div className="artist-stat"><div className="artist-stat-val">{a.albums}</div><div className="artist-stat-lbl">Albums</div></div>
+            <div className="artist-stat"><div className="artist-stat-val">{a.songs}</div><div className="artist-stat-lbl">Songs</div></div>
+            {a.avgRating!==null && <div className="artist-stat"><div className="artist-stat-val">{a.avgRating.toFixed(2)}</div><div className="artist-stat-lbl">Avg rating</div></div>}
+            {a.topAlbum && <div className="artist-stat"><div className="artist-stat-val" style={{fontSize:14}}>{a.topAlbum.title}</div><div className="artist-stat-lbl">Best album</div></div>}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function StatsView({ albums, globalStats, ranked }) {
+  const tierCounts = useMemo(() => {
+    const c={S:0,A:0,B:0,C:0,D:0,F:0};
+    albums.forEach(a => { const t=getTier(calcAlbumAvg(a.songs)); if(t) c[t.label]++; });
+    return c;
+  }, [albums]);
+  const max = Math.max(...Object.values(tierCounts),1);
+  const tierColors = {S:"#FF6B6B",A:"#F5A623",B:"#4FC3F7",C:"#81C784",D:"#CE93D8",F:"#90A4AE"};
+
+  const ratingDist = useMemo(() => {
+    const b=Array(10).fill(0);
+    albums.forEach(a=>a.songs.forEach(s=>{if(s.rating!==null&&s.rating!=="")b[Math.min(9,Math.floor(Number(s.rating)))]++;}));
+    return b;
+  }, [albums]);
+  const maxBucket = Math.max(...ratingDist,1);
+
+  const allRatedSongs = useMemo(() => {
+    const songs=[];
+    albums.forEach(a=>a.songs.forEach((s,i)=>{if(s.rating!==null&&s.rating!=="")songs.push({...s,albumTitle:a.title,albumArtist:a.artist,trackNum:i+1});}));
+    return songs.sort((a,b)=>Number(b.rating)-Number(a.rating));
+  }, [albums]);
+
+  const stdDev = useMemo(() => {
+    const avgs=albums.map(a=>calcAlbumAvg(a.songs)).filter(v=>v!==null);
+    if(avgs.length<2) return null;
+    const mean=avgs.reduce((s,v)=>s+v,0)/avgs.length;
+    return Math.sqrt(avgs.reduce((s,v)=>s+(v-mean)*(v-mean),0)/avgs.length);
+  }, [albums]);
+
+  return (
+    <div>
+      <div className="stats-grid">
+        <div className="stat-card"><div className="stat-value">{globalStats.total}</div><div className="stat-label">Total albums</div></div>
+        <div className="stat-card"><div className="stat-value">{globalStats.rated}</div><div className="stat-label">Rated albums</div></div>
+        <div className="stat-card"><div className="stat-value">{globalStats.avgScore!==null?globalStats.avgScore.toFixed(2):"—"}</div><div className="stat-label">Overall average</div></div>
+        <div className="stat-card"><div className="stat-value">{globalStats.totalSongs}</div><div className="stat-label">Total songs</div></div>
+        <div className="stat-card"><div className="stat-value">{globalStats.ratedSongs}</div><div className="stat-label">Rated songs</div></div>
+        {stdDev!==null && <div className="stat-card"><div className="stat-value">{stdDev.toFixed(2)}</div><div className="stat-label">Rating std deviation</div></div>}
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:20,marginBottom:28}}>
+        <div style={{background:"#1C1C22",border:"1px solid #2a2a35",borderRadius:14,padding:20}}>
+          <div className="section-label" style={{marginBottom:16}}>Tier breakdown</div>
+          {Object.entries(tierCounts).map(([tier,count]) => (
+            <div key={tier} className="tier-row">
+              <div className="tier-letter" style={{color:tierColors[tier]}}>{tier}</div>
+              <div className="tier-bar-wrap"><div className="tier-bar-fill" style={{width:(count/max*100)+"%",background:tierColors[tier]}}/></div>
+              <div className="tier-count">{count}</div>
+            </div>
+          ))}
+        </div>
+        <div style={{background:"#1C1C22",border:"1px solid #2a2a35",borderRadius:14,padding:20}}>
+          <div className="section-label" style={{marginBottom:16}}>Song rating distribution</div>
+          <div style={{display:"flex",gap:4,alignItems:"flex-end",height:120}}>
+            {ratingDist.map((count,i) => (
+              <div key={i} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
+                <div style={{width:"100%",background:"#F5A623",borderRadius:"3px 3px 0 0",height:(count/maxBucket*100)+"px",minHeight:count>0?4:0,transition:"height .4s ease",opacity:.7+(i/9)*.3}}/>
+                <span style={{fontSize:10,color:"#5a5a70"}}>{i}s</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+      {allRatedSongs.length>0 && (
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:20,marginBottom:28}}>
+          <div style={{background:"#1C1C22",border:"1px solid #2a2a35",borderRadius:14,padding:20}}>
+            <div className="section-label" style={{marginBottom:12}}>Top 5 songs globally</div>
+            {allRatedSongs.slice(0,5).map((s,i) => (
+              <div key={s.id} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 0",borderBottom:"1px solid #2a2a35"}}>
+                <span style={{fontSize:12,color:"#5a5a70",width:16}}>{i+1}</span>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:13,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.title||("Track "+s.trackNum)}</div>
+                  <div style={{fontSize:11,color:"#5a5a70"}}>{s.albumTitle}</div>
+                </div>
+                <span style={{fontFamily:"'Space Grotesk',sans-serif",fontSize:14,fontWeight:700,color:ratingColor(s.rating)}}>{Number(s.rating).toFixed(1)}</span>
+              </div>
+            ))}
+          </div>
+          <div style={{background:"#1C1C22",border:"1px solid #2a2a35",borderRadius:14,padding:20}}>
+            <div className="section-label" style={{marginBottom:12}}>Bottom 5 songs globally</div>
+            {allRatedSongs.slice(-5).reverse().map((s,i) => (
+              <div key={s.id} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 0",borderBottom:"1px solid #2a2a35"}}>
+                <span style={{fontSize:12,color:"#5a5a70",width:16}}>{i+1}</span>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:13,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.title||("Track "+s.trackNum)}</div>
+                  <div style={{fontSize:11,color:"#5a5a70"}}>{s.albumTitle}</div>
+                </div>
+                <span style={{fontFamily:"'Space Grotesk',sans-serif",fontSize:14,fontWeight:700,color:ratingColor(s.rating)}}>{Number(s.rating).toFixed(1)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function LogView({ log, albums, onClear }) {
+  const [filter,setFilter] = useState("all");
+  const filtered = filter==="all" ? log : log.filter(e=>e.type===filter);
+  function getLogColor(t) { if(t==="rating") return "#F5A623"; if(t==="add") return "#81C784"; if(t==="edit") return "#4FC3F7"; if(t==="delete") return "#FF6B6B"; return "#5a5a70"; }
+  function getLogIcon(t) { if(t==="rating") return "⭐"; if(t==="add") return "➕"; if(t==="edit") return "✏️"; if(t==="delete") return "🗑"; return "•"; }
+  if(!log.length) return <div className="empty-state"><div className="big-icon">📋</div><h2>No edits logged yet</h2><p>All song rating changes, album additions, and edits will appear here.</p></div>;
+  return (
+    <div>
+      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:24,flexWrap:"wrap"}}>
+        {["all","rating","add","edit","delete"].map(t => (
+          <button key={t} className={"filter-chip"+(filter===t?" active":"")} onClick={() => setFilter(t)}>
+            {t==="all"?"All":t==="rating"?"⭐ Ratings":t==="add"?"➕ Added":t==="edit"?"✏️ Edits":"🗑 Deleted"}
+          </button>
+        ))}
+        <div style={{flex:1}}/>
+        <span style={{fontSize:12,color:"#5a5a70"}}>{filtered.length} entries</span>
+        <button className="btn btn-danger btn-sm" onClick={() => { if(window.confirm("Clear all log entries?")) onClear(); }}>Clear log</button>
+      </div>
+      {filtered.length===0 ? <div className="empty-state" style={{padding:"40px 24px"}}><p>No {filter} entries yet.</p></div> :
+        filtered.map(entry => (
+          <div key={entry.id} className="log-entry">
+            <div className="log-dot" style={{background:getLogColor(entry.type)}}/>
+            <div className="log-content">
+              <div className="log-title">
+                {getLogIcon(entry.type)} {entry.albumTitle||"Unknown Album"}
+                {entry.albumArtist && <span style={{color:"#5a5a70",fontWeight:400}}> — {entry.albumArtist}</span>}
+              </div>
+              <div className="log-sub">
+                {entry.type==="rating" && (
+                  <span className="log-diff">
+                    {entry.songTitle && <span style={{color:"#9090A8"}}>{entry.songTitle}:</span>}
+                    <span style={{color:ratingColor(entry.prevRating)}}>{entry.prevRating!==null&&entry.prevRating!==undefined?Number(entry.prevRating).toFixed(1):"unrated"}</span>
+                    <span className="log-arrow">→</span>
+                    <span style={{color:ratingColor(entry.newRating)}}>{entry.newRating!==null&&entry.newRating!==undefined?Number(entry.newRating).toFixed(1):"cleared"}</span>
+                    {entry.prevRating!==null&&entry.newRating!==null && <span style={{fontSize:11,color:Number(entry.newRating)>Number(entry.prevRating)?"#81C784":"#FF6B6B"}}>({Number(entry.newRating)>Number(entry.prevRating)?"+":""}{(Number(entry.newRating)-Number(entry.prevRating)).toFixed(1)})</span>}
+                  </span>
+                )}
+                {entry.type==="add" && <span style={{color:"#81C784"}}>Album added to library</span>}
+                {entry.type==="edit" && <span style={{color:"#4FC3F7"}}>Album info updated</span>}
+                {entry.type==="delete" && <span style={{color:"#FF6B6B"}}>Album removed from library</span>}
+              </div>
+            </div>
+            <div className="log-time">{formatDateTime(entry.ts)}</div>
+          </div>
+        ))
+      }
+    </div>
+  );
+}
+
+function ComparePanel({ albums, onClose }) {
+  const [a,b] = albums.map(al=>({...al,avg:calcAlbumAvg(al.songs)}));
+  const aTier=getTier(a.avg); const bTier=getTier(b.avg);
+  const maxSongs=Math.max(a.songs.length,b.songs.length);
+  function winner(va,vb) { if(va===null&&vb===null) return "tie"; if(va===null) return "b"; if(vb===null) return "a"; if(Number(va)>Number(vb)) return "a"; if(Number(vb)>Number(va)) return "b"; return "tie"; }
+  const aRated=a.songs.filter(s=>s.rating!==null&&s.rating!=="").length;
+  const bRated=b.songs.filter(s=>s.rating!==null&&s.rating!=="").length;
+  const aFav=getDisplayFav(a); const bFav=getDisplayFav(b);
+  const aMax=a.songs.reduce((m,s)=>s.rating!==null&&Number(s.rating)>m?Number(s.rating):m,0);
+  const bMax=b.songs.reduce((m,s)=>s.rating!==null&&Number(s.rating)>m?Number(s.rating):m,0);
+  const aMin=a.songs.filter(s=>s.rating!==null&&s.rating!=="").reduce((m,s)=>Number(s.rating)<m?Number(s.rating):m,11);
+  const bMin=b.songs.filter(s=>s.rating!==null&&s.rating!=="").reduce((m,s)=>Number(s.rating)<m?Number(s.rating):m,11);
+  const rows=[
+    {label:"Score",va:a.avg!=null?a.avg.toFixed(2):"—",vb:b.avg!=null?b.avg.toFixed(2):"—",w:winner(a.avg,b.avg)},
+    {label:"Tier",va:aTier?aTier.label:"—",vb:bTier?bTier.label:"—",w:"tie",colorA:aTier&&aTier.color,colorB:bTier&&bTier.color},
+    {label:"Tracks",va:a.songs.length,vb:b.songs.length,w:"tie"},
+    {label:"Rated",va:aRated+"/"+a.songs.length,vb:bRated+"/"+b.songs.length,w:"tie"},
+    {label:"Year",va:a.year||"—",vb:b.year||"—",w:"tie"},
+    {label:"Genre",va:a.genre||"—",vb:b.genre||"—",w:"tie"},
+    {label:"Best track",va:aMax>0?aMax.toFixed(1):"—",vb:bMax>0?bMax.toFixed(1):"—",w:winner(aMax>0?aMax:null,bMax>0?bMax:null)},
+    {label:"Worst track",va:aMin<11?aMin.toFixed(1):"—",vb:bMin<11?bMin.toFixed(1):"—",w:winner(bMin<11?bMin:null,aMin<11?aMin:null)},
+    {label:"Fav song",va:aFav?(aFav.title||"—"):"—",vb:bFav?(bFav.title||"—"):"—",w:"tie"},
+  ];
+  return (
+    <div className="compare-panel">
+      <div className="compare-header">
+        <div className="compare-album-header compare-col">
+          <div className="compare-album-cover">{a.cover?<img src={a.cover} alt=""/>:"🎵"}</div>
+          <div><div style={{fontFamily:"'Space Grotesk',sans-serif",fontSize:16,fontWeight:700}}>{a.title}</div><div style={{fontSize:13,color:"#9090A8"}}>{a.artist}</div></div>
+          <ScoreRing score={a.avg} size={56}/>
+        </div>
+        <div style={{textAlign:"center",fontFamily:"'Space Grotesk',sans-serif",fontSize:20,fontWeight:700,color:"#5a5a70",padding:"0 8px"}}>VS</div>
+        <div className="compare-album-header compare-col">
+          <div className="compare-album-cover">{b.cover?<img src={b.cover} alt=""/>:"🎵"}</div>
+          <div><div style={{fontFamily:"'Space Grotesk',sans-serif",fontSize:16,fontWeight:700}}>{b.title}</div><div style={{fontSize:13,color:"#9090A8"}}>{b.artist}</div></div>
+          <ScoreRing score={b.avg} size={56}/>
+        </div>
+        <button className="btn btn-ghost btn-sm" style={{alignSelf:"flex-start",marginLeft:8}} onClick={onClose}>✕</button>
+      </div>
+      <div className="compare-body">
+        <div style={{padding:"16px 24px 8px"}}><div className="section-label">Head to head</div></div>
+        {rows.map(row => (
+          <div key={row.label} className="compare-row">
+            <div className={"compare-cell-left"+(row.w==="a"?" compare-winner":"")} style={row.colorA?{color:row.colorA}:{}}>{row.w==="a"&&"🏆 "}{row.va}</div>
+            <div className="compare-cell-mid">{row.label}</div>
+            <div className={"compare-cell-right"+(row.w==="b"?" compare-winner":"")} style={row.colorB?{color:row.colorB}:{}}>{row.w==="b"&&"🏆 "}{row.vb}</div>
+          </div>
+        ))}
+        {maxSongs>0 && (
+          <>
+            <div style={{padding:"20px 24px 8px"}}><div className="section-label">Track by track</div></div>
+            <div className="compare-song-row" style={{fontSize:11,color:"#5a5a70",fontWeight:600,letterSpacing:".5px"}}>
+              <div style={{textAlign:"right"}}>{a.title}</div>
+              <div style={{textAlign:"center"}}>#</div>
+              <div style={{textAlign:"center"}}>A</div>
+              <div style={{textAlign:"center"}}>B</div>
+              <div>{b.title}</div>
+            </div>
+            {Array.from({length:maxSongs},(_,i) => {
+              const sa=a.songs[i]; const sb=b.songs[i];
+              const ra=sa&&sa.rating!==null&&sa.rating!==""?Number(sa.rating):null;
+              const rb=sb&&sb.rating!==null&&sb.rating!==""?Number(sb.rating):null;
+              const w=winner(ra,rb);
+              return (
+                <div key={i} className="compare-song-row">
+                  <div className={"compare-song-left"+(w==="a"?" compare-winner":"")}>{sa?(sa.title||("Track "+(i+1))):"—"}</div>
+                  <div style={{textAlign:"center",fontSize:11,color:"#5a5a70"}}>{i+1}</div>
+                  <div className="compare-song-score" style={{color:ratingColor(ra)}}>{ra!==null?ra.toFixed(1):"—"}</div>
+                  <div className="compare-song-score" style={{color:ratingColor(rb)}}>{rb!==null?rb.toFixed(1):"—"}</div>
+                  <div className={"compare-song-right"+(w==="b"?" compare-winner":"")}>{sb?(sb.title||("Track "+(i+1))):"—"}</div>
+                </div>
+              );
+            })}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(<Root/>);
+</script>
+</body>
+</html>
