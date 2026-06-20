@@ -390,14 +390,64 @@ function Root() {
   return <App user={user}/>;
 }
 
+// ── Settings helpers ──────────────────────────────────────────────────────
+const DEFAULT_SETTINGS = {
+  accent: "amber",
+  fontScale: "md",
+  compact: false,
+  radius: "soft",
+  density: "normal",
+  hideSidebarStats: false,
+  showRankBadge: true,
+  showFavSong: true,
+  showDateAdded: true,
+  showMetaTags: true,
+  animatedCards: true,
+  logLimit: 500,
+  defaultSort: "dateAdded",
+  defaultTierFilter: "all",
+  confirmDelete: true,
+  autoExportReminder: false,
+  tiers: [
+    { label:"S", min:9.5, color:"#FF6B6B", bg:"rgba(255,107,107,0.15)" },
+    { label:"A", min:8.5, color:"#F5A623", bg:"rgba(245,166,35,0.15)" },
+    { label:"B", min:7.5, color:"#4FC3F7", bg:"rgba(79,195,247,0.15)" },
+    { label:"C", min:6.0, color:"#81C784", bg:"rgba(129,199,132,0.15)" },
+    { label:"D", min:4.0, color:"#CE93D8", bg:"rgba(206,147,216,0.15)" },
+    { label:"F", min:0,   color:"#90A4AE", bg:"rgba(144,164,174,0.15)" },
+  ],
+};
+function loadSettings() {
+  try {
+    const raw = localStorage.getItem("waxify_settings");
+    if (!raw) return { ...DEFAULT_SETTINGS, tiers: DEFAULT_SETTINGS.tiers.map(t=>({...t})) };
+    const saved = JSON.parse(raw);
+    return { ...DEFAULT_SETTINGS, ...saved, tiers: saved.tiers || DEFAULT_SETTINGS.tiers.map(t=>({...t})) };
+  } catch { return { ...DEFAULT_SETTINGS, tiers: DEFAULT_SETTINGS.tiers.map(t=>({...t})) }; }
+}
+function saveSettings(s) {
+  try { localStorage.setItem("waxify_settings", JSON.stringify(s)); } catch {}
+}
+function applySettings(s) {
+  const b = document.body;
+  b.setAttribute("data-accent", s.accent || "amber");
+  b.setAttribute("data-fontscale", s.fontScale || "md");
+  b.setAttribute("data-compact", s.compact ? "true" : "false");
+  b.setAttribute("data-radius", s.radius || "soft");
+  b.setAttribute("data-density", s.density || "normal");
+  b.setAttribute("data-hidestats", s.hideSidebarStats ? "true" : "false");
+  const accentMap = { amber:"#F5A623", blue:"#4FC3F7", green:"#81C784", purple:"#CE93D8", red:"#FF6B6B" };
+  document.documentElement.style.setProperty("--amber", accentMap[s.accent] || "#F5A623");
+}
+// _activeTiers must be declared before getTier() is defined
+let _activeTiers = loadSettings().tiers;
+
 function getTier(avg) {
   if (avg === null || avg === undefined) return null;
-  if (avg >= 9.5) return { label: "S", color: "#FF6B6B", bg: "rgba(255,107,107,0.15)" };
-  if (avg >= 8.5) return { label: "A", color: "#F5A623", bg: "rgba(245,166,35,0.15)" };
-  if (avg >= 7.5) return { label: "B", color: "#4FC3F7", bg: "rgba(79,195,247,0.15)" };
-  if (avg >= 6.0) return { label: "C", color: "#81C784", bg: "rgba(129,199,132,0.15)" };
-  if (avg >= 4.0) return { label: "D", color: "#CE93D8", bg: "rgba(206,147,216,0.15)" };
-  return { label: "F", color: "#90A4AE", bg: "rgba(144,164,174,0.15)" };
+  for (const t of _activeTiers) {
+    if (avg >= t.min) return t;
+  }
+  return _activeTiers[_activeTiers.length - 1] || null;
 }
 function calcAlbumAvg(songs) {
   const rated = songs.filter(s => s.rating !== null && s.rating !== undefined && s.rating !== "");
@@ -1433,71 +1483,6 @@ function ComparePanel({ albums, onClose }) {
     </div>
   );
 }
-
-// ── Settings helpers ──────────────────────────────────────────────────────
-const DEFAULT_SETTINGS = {
-  accent: "amber",
-  fontScale: "md",
-  compact: false,
-  radius: "soft",
-  density: "normal",
-  hideSidebarStats: false,
-  showRankBadge: true,
-  showFavSong: true,
-  showDateAdded: true,
-  showMetaTags: true,
-  animatedCards: true,
-  logLimit: 500,
-  defaultSort: "dateAdded",
-  defaultTierFilter: "all",
-  confirmDelete: true,
-  autoExportReminder: false,
-  tiers: [
-    { label:"S", min:9.5, color:"#FF6B6B", bg:"rgba(255,107,107,0.15)" },
-    { label:"A", min:8.5, color:"#F5A623", bg:"rgba(245,166,35,0.15)" },
-    { label:"B", min:7.5, color:"#4FC3F7", bg:"rgba(79,195,247,0.15)" },
-    { label:"C", min:6.0, color:"#81C784", bg:"rgba(129,199,132,0.15)" },
-    { label:"D", min:4.0, color:"#CE93D8", bg:"rgba(206,147,216,0.15)" },
-    { label:"F", min:0,   color:"#90A4AE", bg:"rgba(144,164,174,0.15)" },
-  ],
-};
-
-function loadSettings() {
-  try {
-    const raw = localStorage.getItem("waxify_settings");
-    if (!raw) return { ...DEFAULT_SETTINGS, tiers: DEFAULT_SETTINGS.tiers.map(t=>({...t})) };
-    const saved = JSON.parse(raw);
-    return { ...DEFAULT_SETTINGS, ...saved, tiers: saved.tiers || DEFAULT_SETTINGS.tiers.map(t=>({...t})) };
-  } catch { return { ...DEFAULT_SETTINGS, tiers: DEFAULT_SETTINGS.tiers.map(t=>({...t})) }; }
-}
-function saveSettings(s) {
-  try { localStorage.setItem("waxify_settings", JSON.stringify(s)); } catch {}
-}
-function applySettings(s) {
-  const b = document.body;
-  b.setAttribute("data-accent", s.accent || "amber");
-  b.setAttribute("data-fontscale", s.fontScale || "md");
-  b.setAttribute("data-compact", s.compact ? "true" : "false");
-  b.setAttribute("data-radius", s.radius || "soft");
-  b.setAttribute("data-density", s.density || "normal");
-  b.setAttribute("data-hidestats", s.hideSidebarStats ? "true" : "false");
-  // sync CSS var for accent so buttons pick it up via inline styles
-  const accentMap = { amber:"#F5A623", blue:"#4FC3F7", green:"#81C784", purple:"#CE93D8", red:"#FF6B6B" };
-  document.documentElement.style.setProperty("--amber", accentMap[s.accent] || "#F5A623");
-}
-
-// Expose tiers globally so getTier() uses current settings
-let _activeTiers = loadSettings().tiers;
-function getTierFromSettings(avg) {
-  if (avg === null || avg === undefined) return null;
-  for (const t of _activeTiers) {
-    if (avg >= t.min) return t;
-  }
-  return _activeTiers[_activeTiers.length - 1];
-}
-
-// Override global getTier to use live settings
-function getTier(avg) { return getTierFromSettings(avg); }
 
 // ── SettingsModal ─────────────────────────────────────────────────────────
 function SettingsModal({ settings, onSave, onClose }) {
