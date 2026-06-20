@@ -65,7 +65,7 @@ input,textarea,select{font-family:'Inter',sans-serif}
 .sidebar{width:220px;min-height:100vh;background:#141416;border-right:1px solid #2a2a35;display:flex;flex-direction:column;position:sticky;top:0;height:100vh;overflow-y:auto;flex-shrink:0}
 .sidebar-logo{padding:24px 20px 16px;font-family:'Space Grotesk',sans-serif;font-size:18px;font-weight:700;color:#F5A623;letter-spacing:-.3px;display:flex;align-items:center;gap:10px}
 .sidebar-logo span{font-size:22px}
-.sidebar-nav{display:flex;flex-direction:column;gap:2px;padding:8px 10px;flex:1}
+.sidebar-nav{display:flex;flex-direction:column;gap:2px;padding:8px 10px;flex:1;min-height:0}
 .nav-btn{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:8px;color:#9090A8;font-size:14px;font-weight:500;transition:all .15s;text-align:left;width:100%}
 .nav-btn:hover{background:#1C1C22;color:#E8E8F0}
 .nav-btn.active{background:rgba(245,166,35,.12);color:#F5A623}
@@ -253,6 +253,81 @@ input,textarea,select{font-family:'Inter',sans-serif}
 .sync-dot{width:6px;height:6px;border-radius:50%;background:#81C784;flex-shrink:0}
 .sync-dot.syncing{background:#F5A623;animation:pulse 1s infinite}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+
+/* ── Settings Modal ──────────────────────────────────────────────────── */
+.settings-overlay{position:fixed;inset:0;background:rgba(0,0,0,.8);backdrop-filter:blur(6px);z-index:600;display:flex;align-items:center;justify-content:center;padding:20px}
+.settings-panel{background:#141416;border:1px solid #38384a;border-radius:20px;width:100%;max-width:720px;max-height:90vh;overflow:hidden;display:flex;flex-direction:column}
+.settings-header{display:flex;align-items:center;justify-content:space-between;padding:24px 28px 20px;border-bottom:1px solid #2a2a35;flex-shrink:0}
+.settings-title{font-family:'Space Grotesk',sans-serif;font-size:20px;font-weight:700}
+.settings-body{display:flex;flex:1;overflow:hidden}
+.settings-sidebar{width:180px;border-right:1px solid #2a2a35;padding:16px 10px;display:flex;flex-direction:column;gap:2px;flex-shrink:0;overflow-y:auto}
+.settings-tab{display:flex;align-items:center;gap:9px;padding:9px 12px;border-radius:8px;font-size:13px;font-weight:500;color:#9090A8;cursor:pointer;transition:all .15s;border:none;background:none;text-align:left;width:100%}
+.settings-tab:hover{background:#1C1C22;color:#E8E8F0}
+.settings-tab.active{background:rgba(245,166,35,.12);color:#F5A623}
+.settings-tab .s-icon{font-size:15px;width:20px;text-align:center}
+.settings-content{flex:1;overflow-y:auto;padding:24px 28px}
+.settings-section{margin-bottom:28px}
+.settings-section-title{font-family:'Space Grotesk',sans-serif;font-size:11px;font-weight:600;color:#5a5a70;letter-spacing:1.5px;text-transform:uppercase;margin-bottom:14px;display:flex;align-items:center;gap:8px}
+.settings-section-title::after{content:'';flex:1;height:1px;background:#2a2a35}
+.settings-row{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 0;border-bottom:1px solid #1e1e26}
+.settings-row:last-child{border-bottom:none}
+.settings-row-label{display:flex;flex-direction:column;gap:3px}
+.settings-row-label strong{font-size:14px;font-weight:500;color:#E8E8F0}
+.settings-row-label span{font-size:12px;color:#5a5a70}
+.settings-row-ctrl{flex-shrink:0}
+/* Toggle */
+.s-toggle{position:relative;width:42px;height:24px;cursor:pointer;display:inline-block}
+.s-toggle input{opacity:0;width:0;height:0;position:absolute}
+.s-toggle-track{position:absolute;inset:0;background:#2a2a35;border-radius:12px;transition:background .2s}
+.s-toggle input:checked ~ .s-toggle-track{background:#F5A623}
+.s-toggle-thumb{position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:#fff;transition:transform .2s;pointer-events:none}
+.s-toggle input:checked ~ .s-toggle-thumb{transform:translateX(18px)}
+/* Select */
+.s-select{background:#1C1C22;border:1px solid #2a2a35;border-radius:8px;color:#E8E8F0;padding:6px 10px;font-size:13px;outline:none;cursor:pointer;transition:border-color .2s}
+.s-select:focus{border-color:#F5A623}
+/* Color swatches */
+.s-swatch-row{display:flex;gap:8px;flex-wrap:wrap}
+.s-swatch{width:28px;height:28px;border-radius:50%;cursor:pointer;border:3px solid transparent;transition:all .15s;flex-shrink:0}
+.s-swatch.active{border-color:#fff;transform:scale(1.15)}
+/* Slider */
+.s-slider{-webkit-appearance:none;appearance:none;width:120px;height:4px;border-radius:2px;background:#242430;outline:none;cursor:pointer}
+.s-slider::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:16px;height:16px;border-radius:50%;background:#F5A623;cursor:pointer}
+.s-slider::-moz-range-thumb{width:16px;height:16px;border-radius:50%;background:#F5A623;cursor:pointer;border:none}
+.s-badge{font-size:12px;color:#9090A8;min-width:32px;text-align:right}
+/* Tier editor */
+.tier-editor-row{display:grid;grid-template-columns:24px 1fr 1fr auto;gap:10px;align-items:center;padding:8px 0;border-bottom:1px solid #1e1e26}
+.tier-editor-row:last-child{border-bottom:none}
+.tier-letter-badge{font-family:'Space Grotesk',sans-serif;font-size:16px;font-weight:700;width:24px;text-align:center}
+.s-input{background:#1C1C22;border:1px solid #2a2a35;border-radius:6px;color:#E8E8F0;padding:5px 8px;font-size:13px;outline:none;width:100%;transition:border-color .2s}
+.s-input:focus{border-color:#F5A623}
+.color-dot{width:20px;height:20px;border-radius:50%;cursor:pointer;border:2px solid #38384a;flex-shrink:0}
+/* Preview chip */
+.tier-preview{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:6px;font-size:12px;font-weight:700;font-family:'Space Grotesk',sans-serif}
+.settings-footer{padding:16px 28px;border-top:1px solid #2a2a35;display:flex;justify-content:flex-end;gap:10px;flex-shrink:0}
+/* accent theming */
+body[data-accent="blue"] { --amber:#4FC3F7; --amber-dim:rgba(79,195,247,0.12); }
+body[data-accent="green"] { --amber:#81C784; --amber-dim:rgba(129,199,132,0.12); }
+body[data-accent="purple"] { --amber:#CE93D8; --amber-dim:rgba(206,147,216,0.12); }
+body[data-accent="red"] { --amber:#FF6B6B; --amber-dim:rgba(255,107,107,0.12); }
+body[data-accent="amber"] { --amber:#F5A623; --amber-dim:rgba(245,166,35,0.12); }
+/* font scale */
+body[data-fontscale="sm"] { font-size:13px; }
+body[data-fontscale="md"] { font-size:15px; }
+body[data-fontscale="lg"] { font-size:16px; }
+/* compact mode */
+body[data-compact="true"] .album-card-body { padding:10px 12px; gap:6px; }
+body[data-compact="true"] .album-grid { gap:12px; }
+body[data-compact="true"] .content { padding:16px 20px; }
+body[data-compact="true"] .sidebar-nav { gap:0; }
+/* card radius */
+body[data-radius="sharp"] { --radius:4px; --radius-sm:2px; }
+body[data-radius="soft"] { --radius:14px; --radius-sm:8px; }
+body[data-radius="round"] { --radius:22px; --radius-sm:14px; }
+/* show/hide sidebar stats */
+body[data-hidestats="true"] .sidebar-stats { display:none; }
+/* card density */
+body[data-density="cozy"] .album-grid { grid-template-columns:repeat(auto-fill,minmax(320px,1fr)); }
+body[data-density="compact"] .album-grid { grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); }
 </style>
 </head>
 <body>
@@ -390,8 +465,8 @@ function App({ user }) {
   const [log,    setLog]    = useState([]);
   const [view, setView] = useState("library");
   const [search, setSearch] = useState("");
-  const [filterTier, setFilterTier] = useState("all");
-  const [sortBy, setSortBy] = useState("dateAdded");
+  const [filterTier, setFilterTier] = useState(() => loadSettings().defaultTierFilter || "all");
+  const [sortBy, setSortBy] = useState(() => loadSettings().defaultSort || "dateAdded");
   const [selectedAlbum, setSelectedAlbum] = useState(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingAlbum, setEditingAlbum] = useState(null);
@@ -402,6 +477,22 @@ function App({ user }) {
   const [compareMode, setCompareMode] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [dataLoaded, setDataLoaded] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [settings, setSettings] = useState(() => {
+    const s = loadSettings();
+    applySettings(s);
+    _activeTiers = s.tiers;
+    return s;
+  });
+
+  function handleSaveSettings(newS) {
+    setSettings(newS);
+    saveSettings(newS);
+    applySettings(newS);
+    _activeTiers = newS.tiers;
+    setShowSettings(false);
+    showToast("Settings saved", "⚙️");
+  }
 
   // ── Pending writes queue (album id → album data, null = delete) ─────────
   const pendingAlbumWrites = useRef({});  // { [albumId]: albumData | "__DELETE__" }
@@ -695,6 +786,10 @@ function App({ user }) {
               {n.id === "log" && log.length > 0 && <span style={{marginLeft:"auto",background:"rgba(245,166,35,.12)",color:"#F5A623",fontSize:10,padding:"1px 6px",borderRadius:10,fontWeight:700}}>{log.length}</span>}
             </button>
           ))}
+          <div style={{flex:1}}/>
+          <button className="nav-btn" onClick={() => setShowSettings(true)}>
+            <span className="icon">⚙️</span><span className="nav-label">Settings</span>
+          </button>
         </nav>
         <div className="sidebar-stats">
           <div className="sidebar-stat"><strong>{globalStats.total}</strong> albums</div>
@@ -734,7 +829,7 @@ function App({ user }) {
         </div>
 
         <div className="content">
-          {view === "library" && <LibraryView albums={filtered} filterTier={filterTier} setFilterTier={setFilterTier} sortBy={sortBy} setSortBy={setSortBy} onSelect={a => { if (!compareMode) setSelectedAlbum(a); }} onAdd={() => setShowAddModal(true)} compareMode={compareMode} compareIds={compareIds} toggleCompare={toggleCompare} />}
+          {view === "library" && <LibraryView albums={filtered} filterTier={filterTier} setFilterTier={setFilterTier} sortBy={sortBy} setSortBy={setSortBy} onSelect={a => { if (!compareMode) setSelectedAlbum(a); }} onAdd={() => setShowAddModal(true)} compareMode={compareMode} compareIds={compareIds} toggleCompare={toggleCompare} settings={settings} />}
           {view === "rankings" && <RankingsView ranked={ranked} onSelect={a => { setSelectedAlbum(a); setView("library"); }} />}
           {view === "artists" && <ArtistView stats={artistStats} onSelect={artist => { setSearch(artist); setView("library"); }} />}
           {view === "stats" && <StatsView albums={albums} globalStats={globalStats} ranked={ranked} />}
@@ -774,16 +869,18 @@ function App({ user }) {
         </div>
       )}
       {toast && <div className="toast"><span>{toast.icon}</span>{toast.msg}</div>}
+      {showSettings && <SettingsModal settings={settings} onSave={handleSaveSettings} onClose={() => setShowSettings(false)} />}
     </div>
   );
 }
 
-function LibraryView({ albums, filterTier, setFilterTier, sortBy, setSortBy, onSelect, onAdd, compareMode, compareIds, toggleCompare }) {
-  const tiers = ["all","S","A","B","C","D","F"];
+function LibraryView({ albums, filterTier, setFilterTier, sortBy, setSortBy, onSelect, onAdd, compareMode, compareIds, toggleCompare, settings }) {
+  const s = settings || {};
+  const tierLabels = ["all", ...(s.tiers || ["S","A","B","C","D","F"].map(l=>({label:l}))).map(t=>t.label)];
   return (
     <>
       <div className="filters">
-        {tiers.map(t => <button key={t} className={"filter-chip"+(filterTier===t?" active":"")} onClick={() => setFilterTier(t)}>{t==="all"?"All tiers":t+" tier"}</button>)}
+        {tierLabels.map(t => <button key={t} className={"filter-chip"+(filterTier===t?" active":"")} onClick={() => setFilterTier(t)}>{t==="all"?"All tiers":t+" tier"}</button>)}
         <div style={{flex:1}}/>
         {compareMode && <span style={{fontSize:13,color:"#4FC3F7",fontWeight:600}}>Select 2 albums to compare</span>}
         <select className="filter-select" value={sortBy} onChange={e => setSortBy(e.target.value)}>
@@ -803,22 +900,24 @@ function LibraryView({ albums, filterTier, setFilterTier, sortBy, setSortBy, onS
         </div>
       ) : (
         <div className="album-grid">
-          {albums.map((album,i) => <AlbumCard key={album.id} album={album} rank={i+1} onClick={() => onSelect(album)} compareMode={compareMode} isCompareSelected={compareIds.includes(album.id)} toggleCompare={toggleCompare} />)}
+          {albums.map((album,i) => <AlbumCard key={album.id} album={album} rank={i+1} onClick={() => onSelect(album)} compareMode={compareMode} isCompareSelected={compareIds.includes(album.id)} toggleCompare={toggleCompare} settings={settings} />)}
         </div>
       )}
     </>
   );
 }
 
-function AlbumCard({ album, rank, onClick, compareMode, isCompareSelected, toggleCompare }) {
+function AlbumCard({ album, rank, onClick, compareMode, isCompareSelected, toggleCompare, settings }) {
+  const s = settings || {};
   const avg = album.avg;
   const tier = getTier(avg);
   const fav = getDisplayFav(album);
+  const noAnim = s.animatedCards === false ? {transition:"none",transform:"none"} : {};
   return (
-    <div className={"album-card"+(isCompareSelected?" compare-selected":"")} onClick={compareMode ? () => toggleCompare(album.id) : onClick}>
+    <div className={"album-card"+(isCompareSelected?" compare-selected":"")} style={noAnim} onClick={compareMode ? () => toggleCompare(album.id) : onClick}>
       <div className="album-cover">
         {album.cover ? <img src={album.cover} alt={album.title}/> : <div className="album-cover-placeholder" style={{fontSize:48}}>🎵</div>}
-        {compareMode ? <div className={"compare-check"+(isCompareSelected?" checked":"")}>{isCompareSelected?"✓":""}</div> : <div className="album-rank">#{rank}</div>}
+        {compareMode ? <div className={"compare-check"+(isCompareSelected?" checked":"")}>{isCompareSelected?"✓":""}</div> : (s.showRankBadge !== false && <div className="album-rank">#{rank}</div>)}
         {tier && <div className="tier-badge" style={{color:tier.color,background:tier.bg}}>{tier.label}</div>}
       </div>
       <div className="album-card-body">
@@ -829,13 +928,13 @@ function AlbumCard({ album, rank, onClick, compareMode, isCompareSelected, toggl
           </div>
           <ScoreRing score={avg} size={52}/>
         </div>
-        <div className="album-meta">
+        {s.showMetaTags !== false && <div className="album-meta">
           {album.year && <span className="meta-tag">{album.year}</span>}
           {album.genre && <span className="meta-tag">{album.genre}</span>}
           <span className="meta-tag">{album.songs.length} tracks</span>
-        </div>
-        {fav && <div className="album-fav">⭐ <strong>{fav.title||"Track "+(album.songs.indexOf(fav)+1)}</strong> ({Number(fav.rating).toFixed(1)})</div>}
-        <div style={{fontSize:11,color:"#5a5a70"}}>Added {formatDate(album.dateAdded)}</div>
+        </div>}
+        {s.showFavSong !== false && fav && <div className="album-fav">⭐ <strong>{fav.title||"Track "+(album.songs.indexOf(fav)+1)}</strong> ({Number(fav.rating).toFixed(1)})</div>}
+        {s.showDateAdded !== false && <div style={{fontSize:11,color:"#5a5a70"}}>Added {formatDate(album.dateAdded)}</div>}
       </div>
     </div>
   );
@@ -1330,6 +1429,355 @@ function ComparePanel({ albums, onClose }) {
             })}
           </>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ── Settings helpers ──────────────────────────────────────────────────────
+const DEFAULT_SETTINGS = {
+  accent: "amber",
+  fontScale: "md",
+  compact: false,
+  radius: "soft",
+  density: "normal",
+  hideSidebarStats: false,
+  showRankBadge: true,
+  showFavSong: true,
+  showDateAdded: true,
+  showMetaTags: true,
+  animatedCards: true,
+  logLimit: 500,
+  defaultSort: "dateAdded",
+  defaultTierFilter: "all",
+  confirmDelete: true,
+  autoExportReminder: false,
+  tiers: [
+    { label:"S", min:9.5, color:"#FF6B6B", bg:"rgba(255,107,107,0.15)" },
+    { label:"A", min:8.5, color:"#F5A623", bg:"rgba(245,166,35,0.15)" },
+    { label:"B", min:7.5, color:"#4FC3F7", bg:"rgba(79,195,247,0.15)" },
+    { label:"C", min:6.0, color:"#81C784", bg:"rgba(129,199,132,0.15)" },
+    { label:"D", min:4.0, color:"#CE93D8", bg:"rgba(206,147,216,0.15)" },
+    { label:"F", min:0,   color:"#90A4AE", bg:"rgba(144,164,174,0.15)" },
+  ],
+};
+
+function loadSettings() {
+  try {
+    const raw = localStorage.getItem("waxify_settings");
+    if (!raw) return { ...DEFAULT_SETTINGS, tiers: DEFAULT_SETTINGS.tiers.map(t=>({...t})) };
+    const saved = JSON.parse(raw);
+    return { ...DEFAULT_SETTINGS, ...saved, tiers: saved.tiers || DEFAULT_SETTINGS.tiers.map(t=>({...t})) };
+  } catch { return { ...DEFAULT_SETTINGS, tiers: DEFAULT_SETTINGS.tiers.map(t=>({...t})) }; }
+}
+function saveSettings(s) {
+  try { localStorage.setItem("waxify_settings", JSON.stringify(s)); } catch {}
+}
+function applySettings(s) {
+  const b = document.body;
+  b.setAttribute("data-accent", s.accent || "amber");
+  b.setAttribute("data-fontscale", s.fontScale || "md");
+  b.setAttribute("data-compact", s.compact ? "true" : "false");
+  b.setAttribute("data-radius", s.radius || "soft");
+  b.setAttribute("data-density", s.density || "normal");
+  b.setAttribute("data-hidestats", s.hideSidebarStats ? "true" : "false");
+  // sync CSS var for accent so buttons pick it up via inline styles
+  const accentMap = { amber:"#F5A623", blue:"#4FC3F7", green:"#81C784", purple:"#CE93D8", red:"#FF6B6B" };
+  document.documentElement.style.setProperty("--amber", accentMap[s.accent] || "#F5A623");
+}
+
+// Expose tiers globally so getTier() uses current settings
+let _activeTiers = loadSettings().tiers;
+function getTierFromSettings(avg) {
+  if (avg === null || avg === undefined) return null;
+  for (const t of _activeTiers) {
+    if (avg >= t.min) return t;
+  }
+  return _activeTiers[_activeTiers.length - 1];
+}
+
+// Override global getTier to use live settings
+function getTier(avg) { return getTierFromSettings(avg); }
+
+// ── SettingsModal ─────────────────────────────────────────────────────────
+function SettingsModal({ settings, onSave, onClose }) {
+  const [draft, setDraft] = useState(() => JSON.parse(JSON.stringify(settings)));
+  const [tab, setTab] = useState("appearance");
+
+  function set(key, val) { setDraft(d => ({ ...d, [key]: val })); }
+  function setTierField(idx, field, val) {
+    setDraft(d => {
+      const tiers = d.tiers.map((t,i) => i===idx ? {...t,[field]:val} : t);
+      return {...d, tiers};
+    });
+  }
+
+  const accentColors = [
+    { key:"amber", color:"#F5A623", label:"Amber" },
+    { key:"blue",  color:"#4FC3F7", label:"Blue" },
+    { key:"green", color:"#81C784", label:"Green" },
+    { key:"purple",color:"#CE93D8", label:"Purple" },
+    { key:"red",   color:"#FF6B6B", label:"Red" },
+  ];
+
+  const tabs = [
+    { id:"appearance", icon:"🎨", label:"Appearance" },
+    { id:"library",    icon:"📚", label:"Library" },
+    { id:"tiers",      icon:"🏅", label:"Tier System" },
+    { id:"behaviour",  icon:"⚙️",  label:"Behaviour" },
+    { id:"account",    icon:"👤", label:"Account" },
+  ];
+
+  function Toggle({ k }) {
+    return (
+      <label className="s-toggle">
+        <input type="checkbox" checked={!!draft[k]} onChange={e => set(k, e.target.checked)} />
+        <div className="s-toggle-track"/>
+        <div className="s-toggle-thumb"/>
+      </label>
+    );
+  }
+
+  return (
+    <div className="settings-overlay" onClick={e => e.target===e.currentTarget && onClose()}>
+      <div className="settings-panel">
+        <div className="settings-header">
+          <div className="settings-title">⚙️ Settings</div>
+          <button className="btn btn-ghost btn-sm" onClick={onClose}>✕</button>
+        </div>
+
+        <div className="settings-body">
+          {/* Sidebar tabs */}
+          <div className="settings-sidebar">
+            {tabs.map(t => (
+              <button key={t.id} className={"settings-tab"+(tab===t.id?" active":"")} onClick={()=>setTab(t.id)}>
+                <span className="s-icon">{t.icon}</span>{t.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Content */}
+          <div className="settings-content">
+
+            {/* ── APPEARANCE ── */}
+            {tab==="appearance" && <>
+              <div className="settings-section">
+                <div className="settings-section-title">Accent Color</div>
+                <div className="settings-row" style={{borderBottom:"none"}}>
+                  <div className="settings-row-label">
+                    <strong>Theme color</strong>
+                    <span>Used for active elements, buttons, and highlights</span>
+                  </div>
+                  <div className="settings-row-ctrl">
+                    <div className="s-swatch-row">
+                      {accentColors.map(a => (
+                        <div key={a.key} title={a.label} className={"s-swatch"+(draft.accent===a.key?" active":"")}
+                          style={{background:a.color}} onClick={()=>set("accent",a.key)}/>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="settings-section">
+                <div className="settings-section-title">Typography & Scale</div>
+                <div className="settings-row">
+                  <div className="settings-row-label"><strong>Font size</strong><span>Base font scale for the UI</span></div>
+                  <div className="settings-row-ctrl">
+                    <select className="s-select" value={draft.fontScale} onChange={e=>set("fontScale",e.target.value)}>
+                      <option value="sm">Small</option>
+                      <option value="md">Medium (default)</option>
+                      <option value="lg">Large</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              <div className="settings-section">
+                <div className="settings-section-title">Layout</div>
+                <div className="settings-row">
+                  <div className="settings-row-label"><strong>Card corners</strong><span>Border radius style for cards and panels</span></div>
+                  <div className="settings-row-ctrl">
+                    <select className="s-select" value={draft.radius} onChange={e=>set("radius",e.target.value)}>
+                      <option value="sharp">Sharp</option>
+                      <option value="soft">Soft (default)</option>
+                      <option value="round">Round</option>
+                    </select>
+                  </div>
+                </div>
+                <div className="settings-row">
+                  <div className="settings-row-label"><strong>Card density</strong><span>How many album cards appear per row</span></div>
+                  <div className="settings-row-ctrl">
+                    <select className="s-select" value={draft.density} onChange={e=>set("density",e.target.value)}>
+                      <option value="compact">Compact (more columns)</option>
+                      <option value="normal">Normal (default)</option>
+                      <option value="cozy">Cozy (fewer columns)</option>
+                    </select>
+                  </div>
+                </div>
+                <div className="settings-row">
+                  <div className="settings-row-label"><strong>Compact mode</strong><span>Reduce padding and spacing throughout</span></div>
+                  <div className="settings-row-ctrl"><Toggle k="compact"/></div>
+                </div>
+                <div className="settings-row">
+                  <div className="settings-row-label"><strong>Hide sidebar stats</strong><span>Hide album/song counts in the sidebar</span></div>
+                  <div className="settings-row-ctrl"><Toggle k="hideSidebarStats"/></div>
+                </div>
+                <div className="settings-row">
+                  <div className="settings-row-label"><strong>Animated cards</strong><span>Hover lift animation on album cards</span></div>
+                  <div className="settings-row-ctrl"><Toggle k="animatedCards"/></div>
+                </div>
+              </div>
+            </>}
+
+            {/* ── LIBRARY ── */}
+            {tab==="library" && <>
+              <div className="settings-section">
+                <div className="settings-section-title">Default View</div>
+                <div className="settings-row">
+                  <div className="settings-row-label"><strong>Default sort</strong><span>Sort order when you open the library</span></div>
+                  <div className="settings-row-ctrl">
+                    <select className="s-select" value={draft.defaultSort} onChange={e=>set("defaultSort",e.target.value)}>
+                      <option value="dateAdded">Date added</option>
+                      <option value="rating">Rating</option>
+                      <option value="title">Title</option>
+                      <option value="artist">Artist</option>
+                      <option value="year">Year</option>
+                    </select>
+                  </div>
+                </div>
+                <div className="settings-row">
+                  <div className="settings-row-label"><strong>Default tier filter</strong><span>Tier shown when you open the library</span></div>
+                  <div className="settings-row-ctrl">
+                    <select className="s-select" value={draft.defaultTierFilter} onChange={e=>set("defaultTierFilter",e.target.value)}>
+                      <option value="all">All tiers</option>
+                      {draft.tiers.map(t=><option key={t.label} value={t.label}>{t.label} tier</option>)}
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              <div className="settings-section">
+                <div className="settings-section-title">Album Card Info</div>
+                <div className="settings-row">
+                  <div className="settings-row-label"><strong>Show rank badge</strong><span>Display #1, #2… on each card</span></div>
+                  <div className="settings-row-ctrl"><Toggle k="showRankBadge"/></div>
+                </div>
+                <div className="settings-row">
+                  <div className="settings-row-label"><strong>Show favourite song</strong><span>Show the top-rated track below the card</span></div>
+                  <div className="settings-row-ctrl"><Toggle k="showFavSong"/></div>
+                </div>
+                <div className="settings-row">
+                  <div className="settings-row-label"><strong>Show date added</strong><span>Display when the album was added</span></div>
+                  <div className="settings-row-ctrl"><Toggle k="showDateAdded"/></div>
+                </div>
+                <div className="settings-row">
+                  <div className="settings-row-label"><strong>Show genre / year tags</strong><span>Show metadata chips on each card</span></div>
+                  <div className="settings-row-ctrl"><Toggle k="showMetaTags"/></div>
+                </div>
+              </div>
+
+              <div className="settings-section">
+                <div className="settings-section-title">Edit Log</div>
+                <div className="settings-row">
+                  <div className="settings-row-label">
+                    <strong>Log entry limit</strong>
+                    <span>Max log entries loaded from Firestore ({draft.logLimit})</span>
+                  </div>
+                  <div className="settings-row-ctrl" style={{display:"flex",alignItems:"center",gap:8}}>
+                    <input type="range" className="s-slider" min={50} max={2000} step={50} value={draft.logLimit}
+                      onChange={e=>set("logLimit",Number(e.target.value))}/>
+                    <span className="s-badge">{draft.logLimit}</span>
+                  </div>
+                </div>
+              </div>
+            </>}
+
+            {/* ── TIERS ── */}
+            {tab==="tiers" && <>
+              <div className="settings-section">
+                <div className="settings-section-title">Tier Thresholds & Colors</div>
+                <p style={{fontSize:12,color:"#5a5a70",marginBottom:16,lineHeight:1.6}}>
+                  Adjust the minimum score and display color for each tier. Changes apply immediately to your library.
+                </p>
+                <div style={{display:"grid",gridTemplateColumns:"28px 1fr 100px 100px 80px",gap:8,fontSize:11,fontWeight:600,color:"#5a5a70",marginBottom:6,letterSpacing:.5}}>
+                  <div/>
+                  <div>LABEL</div>
+                  <div>MIN SCORE</div>
+                  <div>COLOR</div>
+                  <div>PREVIEW</div>
+                </div>
+                {draft.tiers.map((t,i) => (
+                  <div key={t.label} className="tier-editor-row" style={{gridTemplateColumns:"28px 1fr 100px 100px 80px",display:"grid",gap:8,alignItems:"center",padding:"10px 0",borderBottom:"1px solid #1e1e26"}}>
+                    <div className="tier-letter-badge" style={{color:t.color}}>{t.label}</div>
+                    <input className="s-input" value={t.label} onChange={e=>setTierField(i,"label",e.target.value)} maxLength={4}/>
+                    <input className="s-input" type="number" min={0} max={10} step={0.5} value={t.min}
+                      onChange={e=>setTierField(i,"min",Number(e.target.value))}/>
+                    <input className="s-input" type="color" value={t.color}
+                      onChange={e=>setTierField(i,"color",e.target.value)}
+                      style={{height:34,padding:"2px 4px",cursor:"pointer"}}/>
+                    <div className="tier-preview" style={{color:t.color,background:t.bg||"rgba(128,128,128,0.15)"}}>{t.label}</div>
+                  </div>
+                ))}
+                <button className="btn btn-ghost btn-sm" style={{marginTop:14}}
+                  onClick={()=>setDraft(d=>({...d,tiers:DEFAULT_SETTINGS.tiers.map(t=>({...t}))}))}>
+                  ↺ Reset to defaults
+                </button>
+              </div>
+            </>}
+
+            {/* ── BEHAVIOUR ── */}
+            {tab==="behaviour" && <>
+              <div className="settings-section">
+                <div className="settings-section-title">Confirmations</div>
+                <div className="settings-row">
+                  <div className="settings-row-label"><strong>Confirm before deleting</strong><span>Show a confirmation step when removing albums</span></div>
+                  <div className="settings-row-ctrl"><Toggle k="confirmDelete"/></div>
+                </div>
+              </div>
+              <div className="settings-section">
+                <div className="settings-section-title">Data & Sync</div>
+                <div className="settings-row">
+                  <div className="settings-row-label"><strong>Export reminder</strong><span>Remind you to export a backup each week</span></div>
+                  <div className="settings-row-ctrl"><Toggle k="autoExportReminder"/></div>
+                </div>
+              </div>
+              <div className="settings-section">
+                <div className="settings-section-title">Reset</div>
+                <div className="settings-row" style={{borderBottom:"none"}}>
+                  <div className="settings-row-label"><strong>Reset all settings</strong><span>Restore every setting to its default value</span></div>
+                  <div className="settings-row-ctrl">
+                    <button className="btn btn-danger btn-sm" onClick={()=>setDraft(JSON.parse(JSON.stringify(DEFAULT_SETTINGS)))}>
+                      Reset
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </>}
+
+            {/* ── ACCOUNT ── */}
+            {tab==="account" && <>
+              <div className="settings-section">
+                <div className="settings-section-title">Session Info</div>
+                <div className="settings-row" style={{borderBottom:"none"}}>
+                  <div className="settings-row-label"><strong>Settings storage</strong><span>Your preferences are saved locally in this browser</span></div>
+                  <div className="settings-row-ctrl">
+                    <span style={{fontSize:12,color:"#5a5a70",background:"#1C1C22",padding:"4px 10px",borderRadius:6}}>localStorage</span>
+                  </div>
+                </div>
+              </div>
+              <div style={{background:"#1C1C22",border:"1px solid #2a2a35",borderRadius:12,padding:16,fontSize:13,color:"#9090A8",lineHeight:1.6}}>
+                ℹ️ Settings are stored in your browser's local storage. They are not synced to Firebase and are device-specific. Your album data and ratings are always saved to your Firestore account and follow you across devices.
+              </div>
+            </>}
+
+          </div>
+        </div>
+
+        <div className="settings-footer">
+          <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+          <button className="btn btn-primary" onClick={() => onSave(draft)}>Save changes</button>
+        </div>
       </div>
     </div>
   );
