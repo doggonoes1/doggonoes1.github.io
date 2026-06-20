@@ -27,11 +27,19 @@
   const auth = firebase.auth();
   const db   = firebase.firestore();
 
-  // Convenience helpers used by React code below
-  function fbDoc(uid, docName) {
-    // Each user gets their own sub-collection: users/{uid}/{docName}
-    return db.collection("users").doc(uid).collection("data").doc(docName);
-  }
+  // ── Scalable Firestore helpers ────────────────────────────────────────────
+  // NEW structure (one doc per album / one doc per log entry):
+  //   users/{uid}/albums/{albumId}   ← each album is its own document
+  //   users/{uid}/log/{entryId}      ← each log entry is its own document
+  //
+  // OLD structure (kept for migration only):
+  //   users/{uid}/data/albums        ← { list: [...] }  (may hit 1 MB limit)
+  //   users/{uid}/data/log           ← { list: [...] }
+
+  function albumsCol(uid)  { return db.collection("users").doc(uid).collection("albums"); }
+  function logCol(uid)     { return db.collection("users").doc(uid).collection("log"); }
+  // legacy doc refs — used only during one-time migration
+  function legacyDoc(uid, name) { return db.collection("users").doc(uid).collection("data").doc(name); }
 </script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
@@ -395,81 +403,173 @@ function App({ user }) {
   const [syncing, setSyncing] = useState(false);
   const [dataLoaded, setDataLoaded] = useState(false);
 
-  const defaultSettings = {
-    compactMode: false,
-    largeCovers: true,
-    showRankings: true,
-    showFavorites: true,
-    reduceAnimations: false,
-    accentColor: "amber",
-    defaultSort: "dateAdded",
-    defaultTier: "all",
-    albumsPerPage: 50,
-    showDecimals: true,
-    highlightTens: true,
-    highlightFavorites: true,
-    showAlbumAverages: true,
-    showStatsCards: true,
-    showArtistStats: true,
-    showRecentActivity: true
-  };
-  const [settings, setSettings] = useState(() => {
-    try {
-      return {
-        ...defaultSettings,
-        ...JSON.parse(localStorage.getItem("waxify_settings") || "{}")
-      };
-    } catch {
-      return defaultSettings;
-    }
-  });
-  useEffect(() => {
-    localStorage.setItem(
-      "waxify_settings",
-      JSON.stringify(settings)
-    );
-  }, [settings]);
+  // ── Pending writes queue (album id → album data, null = delete) ─────────
+  const pendingAlbumWrites = useRef({});  // { [albumId]: albumData | "__DELETE__" }
+  const pendingLogWrites   = useRef({});  // { [entryId]: entryData }
+  const pendingLogClears   = useRef(false);
 
-  // ── Load from Firestore on mount ────────────────────────────────────────
+  // ── Load from Firestore on mount (new per-document structure) ────────────
   useEffect(() => {
     async function load() {
       try {
-        const [albumsSnap, logSnap] = await Promise.all([
-          fbDoc(user.uid, "albums").get(),
-          fbDoc(user.uid, "log").get()
+        // 1. Try new scalable collections first
+        const [newAlbumsSnap, newLogSnap] = await Promise.all([
+          albumsCol(user.uid).orderBy("dateAdded", "asc").get().catch(() => null),
+          logCol(user.uid).orderBy("ts", "desc").limit(500).get().catch(() => null),
         ]);
-        if (albumsSnap.exists) setAlbums(albumsSnap.data().list || []);
-        if (logSnap.exists)   setLog(logSnap.data().list || []);
+
+        let loadedAlbums = [];
+        let loadedLog    = [];
+
+        if (newAlbumsSnap && !newAlbumsSnap.empty) {
+          // ✅ New structure exists — use it
+          loadedAlbums = newAlbumsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+        } else {
+          // 🔄 Try legacy single-doc structure and migrate if found
+          const [legacyAlbumsSnap] = await Promise.all([
+            legacyDoc(user.uid, "albums").get().catch(() => null),
+          ]);
+          if (legacyAlbumsSnap && legacyAlbumsSnap.exists) {
+            loadedAlbums = legacyAlbumsSnap.data().list || [];
+            // Migrate albums → write each to its own doc (batched, 500/batch max)
+            if (loadedAlbums.length > 0) {
+              console.log(`Waxify: migrating ${loadedAlbums.length} albums to scalable structure…`);
+              const BATCH_SIZE = 400;
+              for (let i = 0; i < loadedAlbums.length; i += BATCH_SIZE) {
+                const batch = db.batch();
+                loadedAlbums.slice(i, i + BATCH_SIZE).forEach(album => {
+                  batch.set(albumsCol(user.uid).doc(album.id), album);
+                });
+                await batch.commit();
+              }
+              // Delete legacy doc once migration succeeds
+              await legacyDoc(user.uid, "albums").delete().catch(() => {});
+              console.log("Waxify: album migration complete.");
+            }
+          }
+        }
+
+        if (newLogSnap && !newLogSnap.empty) {
+          // ✅ New log structure exists
+          loadedLog = newLogSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+        } else {
+          // 🔄 Try legacy log and migrate
+          const legacyLogSnap = await legacyDoc(user.uid, "log").get().catch(() => null);
+          if (legacyLogSnap && legacyLogSnap.exists) {
+            loadedLog = legacyLogSnap.data().list || [];
+            if (loadedLog.length > 0) {
+              console.log(`Waxify: migrating ${loadedLog.length} log entries…`);
+              const BATCH_SIZE = 400;
+              for (let i = 0; i < loadedLog.length; i += BATCH_SIZE) {
+                const batch = db.batch();
+                loadedLog.slice(i, i + BATCH_SIZE).forEach(entry => {
+                  const entryId = entry.id || crypto.randomUUID();
+                  batch.set(logCol(user.uid).doc(entryId), { ...entry, id: entryId });
+                });
+                await batch.commit();
+              }
+              await legacyDoc(user.uid, "log").delete().catch(() => {});
+              console.log("Waxify: log migration complete.");
+            }
+          }
+        }
+
+        setAlbums(loadedAlbums);
+        setLog(loadedLog);
       } catch(e) { console.error("Firestore load error", e); }
       setDataLoaded(true);
     }
     load();
   }, [user.uid]);
 
-  // ── Save albums to Firestore whenever they change (debounced 800 ms) ────
-  const albumsSaveTimer = useRef(null);
-  useEffect(() => {
-    if (!dataLoaded) return;
-    clearTimeout(albumsSaveTimer.current);
+  // ── Flush pending writes (debounced) ─────────────────────────────────────
+  const flushTimer = useRef(null);
+  function scheduleFlush() {
+    clearTimeout(flushTimer.current);
     setSyncing(true);
-    albumsSaveTimer.current = setTimeout(async () => {
+    flushTimer.current = setTimeout(async () => {
       try {
-        await fbDoc(user.uid, "albums").set({ list: albums });
-      } catch(e) { console.error("Firestore save (albums) error", e); }
+        // --- Album writes ---
+        const albumEntries = Object.entries(pendingAlbumWrites.current);
+        pendingAlbumWrites.current = {};
+        if (albumEntries.length > 0) {
+          const BATCH_SIZE = 400;
+          for (let i = 0; i < albumEntries.length; i += BATCH_SIZE) {
+            const batch = db.batch();
+            albumEntries.slice(i, i + BATCH_SIZE).forEach(([id, data]) => {
+              const ref = albumsCol(user.uid).doc(id);
+              if (data === "__DELETE__") batch.delete(ref);
+              else batch.set(ref, data);
+            });
+            await batch.commit();
+          }
+        }
+        // --- Log writes ---
+        if (pendingLogClears.current) {
+          // Delete all log docs
+          pendingLogClears.current = false;
+          pendingLogWrites.current = {};
+          const snap = await logCol(user.uid).get();
+          const BATCH_SIZE = 400;
+          for (let i = 0; i < snap.docs.length; i += BATCH_SIZE) {
+            const batch = db.batch();
+            snap.docs.slice(i, i + BATCH_SIZE).forEach(d => batch.delete(d.ref));
+            await batch.commit();
+          }
+        } else {
+          const logEntries = Object.entries(pendingLogWrites.current);
+          pendingLogWrites.current = {};
+          if (logEntries.length > 0) {
+            const BATCH_SIZE = 400;
+            for (let i = 0; i < logEntries.length; i += BATCH_SIZE) {
+              const batch = db.batch();
+              logEntries.slice(i, i + BATCH_SIZE).forEach(([id, data]) => {
+                batch.set(logCol(user.uid).doc(id), data);
+              });
+              await batch.commit();
+            }
+          }
+        }
+      } catch(e) { console.error("Firestore flush error", e); }
       setSyncing(false);
     }, 800);
-  }, [albums, dataLoaded]);
+  }
 
-  // ── Save log to Firestore whenever it changes (debounced 800 ms) ────────
-  const logSaveTimer = useRef(null);
+  // ── Track album state changes → queue writes ─────────────────────────────
+  const prevAlbumsRef = useRef(null);
   useEffect(() => {
     if (!dataLoaded) return;
-    clearTimeout(logSaveTimer.current);
-    logSaveTimer.current = setTimeout(async () => {
-      try {
-        await fbDoc(user.uid, "log").set({ list: log.slice(0, 500) });
-      } catch(e) { console.error("Firestore save (log) error", e); }
-    }, 800);
+    const prev = prevAlbumsRef.current;
+    if (prev !== null) {
+      const prevMap = Object.fromEntries(prev.map(a => [a.id, a]));
+      const currMap = Object.fromEntries(albums.map(a => [a.id, a]));
+      // Upserts
+      albums.forEach(a => { if (JSON.stringify(a) !== JSON.stringify(prevMap[a.id])) pendingAlbumWrites.current[a.id] = a; });
+      // Deletions
+      prev.forEach(a => { if (!currMap[a.id]) pendingAlbumWrites.current[a.id] = "__DELETE__"; });
+      scheduleFlush();
+    }
+    prevAlbumsRef.current = albums;
+  }, [albums, dataLoaded]);
+
+  // ── Track log state changes → queue writes ───────────────────────────────
+  const prevLogRef = useRef(null);
+  useEffect(() => {
+    if (!dataLoaded) return;
+    const prev = prevLogRef.current;
+    if (prev !== null) {
+      if (log.length === 0 && prev.length > 0) {
+        // Log was cleared
+        pendingLogClears.current = true;
+        pendingLogWrites.current = {};
+      } else {
+        // Find new entries (new log entries are prepended)
+        const prevIds = new Set(prev.map(e => e.id));
+        log.forEach(e => { if (!prevIds.has(e.id)) pendingLogWrites.current[e.id] = e; });
+      }
+      scheduleFlush();
+    }
+    prevLogRef.current = log;
   }, [log, dataLoaded]);
 
   function addLog(entry) {
@@ -582,7 +682,6 @@ function App({ user }) {
     { id: "artists", icon: "🎤", label: "Artists" },
     { id: "stats", icon: "📊", label: "Statistics" },
     { id: "log", icon: "📋", label: "Edit Log" },
-    { id: "settings", icon: "⚙️", label: "Settings" },
   ];
 
   return (
@@ -612,7 +711,6 @@ function App({ user }) {
             {view === "artists" && "Artists"}
             {view === "stats" && "Statistics"}
             {view === "log" && "Edit Log"}
-            {view === "settings" && "Settings"}
           </div>
           {view === "library" && (
             <>
@@ -641,15 +739,6 @@ function App({ user }) {
           {view === "artists" && <ArtistView stats={artistStats} onSelect={artist => { setSearch(artist); setView("library"); }} />}
           {view === "stats" && <StatsView albums={albums} globalStats={globalStats} ranked={ranked} />}
           {view === "log" && <LogView log={log} albums={albums} onClear={() => { setLog([]); showToast("Log cleared", "🗑"); }} />}
-          {view === "settings" && (
-            <SettingsView
-              user={user}
-              albums={albums}
-              log={log}
-              onExport={handleExport}
-              onSignOut={handleSignOut}
-            />
-          )}
         </div>
       </div>
 
@@ -1241,213 +1330,6 @@ function ComparePanel({ albums, onClose }) {
             })}
           </>
         )}
-      </div>
-    </div>
-  );
-}
-
-function SettingsView({
-  user,
-  albums,
-  log,
-  onExport,
-  onSignOut
-}) {
-  const [settings, setSettings] = React.useState(() => {
-    const defaults = {
-      compactMode:false,
-      largeCovers:true,
-      showRankings:true,
-      showFavorites:true,
-      reduceAnimations:false,
-      accentColor:"amber",
-      defaultSort:"dateAdded",
-      defaultTier:"all",
-      albumsPerPage:50,
-      showDecimals:true,
-      highlightTens:true,
-      highlightFavorites:true,
-      showAlbumAverages:true,
-      showStatsCards:true,
-      showArtistStats:true,
-      showRecentActivity:true
-    };
-
-    try {
-      return {
-        ...defaults,
-        ...JSON.parse(
-          localStorage.getItem("waxify_settings") || "{}"
-        )
-      };
-    } catch {
-      return defaults;
-    }
-  });
-
-  React.useEffect(() => {
-    localStorage.setItem(
-      "waxify_settings",
-      JSON.stringify(settings)
-    );
-  }, [settings]);
-
-  const totalSongs = albums.reduce(
-    (s,a) => s + a.songs.length,
-    0
-  );
-
-  const totalRatings = albums.reduce(
-    (sum,a) =>
-      sum +
-      a.songs.filter(
-        s => s.rating !== null && s.rating !== ""
-      ).length,
-    0
-  );
-
-  const SettingToggle = ({label,keyName}) => (
-    <label
-      style={{
-        display:"flex",
-        justifyContent:"space-between",
-        alignItems:"center",
-        padding:"10px 0"
-      }}
-    >
-      <span>{label}</span>
-      <input
-        type="checkbox"
-        checked={settings[keyName]}
-        onChange={() =>
-          setSettings(s => ({
-            ...s,
-            [keyName]: !s[keyName]
-          }))
-        }
-      />
-    </label>
-  );
-
-  return (
-    <div
-      style={{
-        display:"flex",
-        flexDirection:"column",
-        gap:20
-      }}
-    >
-      <div className="stat-card">
-        <h3>Appearance</h3>
-
-        <SettingToggle
-          label="Compact Mode"
-          keyName="compactMode"
-        />
-
-        <SettingToggle
-          label="Large Album Covers"
-          keyName="largeCovers"
-        />
-
-        <SettingToggle
-          label="Show Rankings"
-          keyName="showRankings"
-        />
-
-        <SettingToggle
-          label="Show Favorite Songs"
-          keyName="showFavorites"
-        />
-
-        <SettingToggle
-          label="Reduce Animations"
-          keyName="reduceAnimations"
-        />
-
-        <select
-          className="filter-select"
-          value={settings.accentColor}
-          onChange={e =>
-            setSettings(s => ({
-              ...s,
-              accentColor:e.target.value
-            }))
-          }
-        >
-          <option value="amber">Amber</option>
-          <option value="blue">Blue</option>
-          <option value="purple">Purple</option>
-          <option value="green">Green</option>
-        </select>
-      </div>
-
-      <div className="stat-card">
-        <h3>Library</h3>
-
-        <select
-          className="filter-select"
-          value={settings.defaultSort}
-          onChange={e =>
-            setSettings(s => ({
-              ...s,
-              defaultSort:e.target.value
-            }))
-          }
-        >
-          <option value="dateAdded">Date Added</option>
-          <option value="rating">Rating</option>
-          <option value="artist">Artist</option>
-          <option value="title">Title</option>
-        </select>
-      </div>
-
-      <div className="stat-card">
-        <h3>Backup &amp; Data</h3>
-
-        <button
-          className="btn btn-primary"
-          onClick={onExport}
-        >
-          💾 Export Data
-        </button>
-
-        <div style={{marginTop:12}}>
-          Albums: {albums.length}
-        </div>
-
-        <div>
-          Songs: {totalSongs}
-        </div>
-
-        <div>
-          Ratings: {totalRatings}
-        </div>
-      </div>
-
-      <div className="stat-card">
-        <h3>Account</h3>
-
-        {user.photoURL && (
-          <img
-            src={user.photoURL}
-            alt=""
-            style={{
-              width:64,
-              height:64,
-              borderRadius:"50%"
-            }}
-          />
-        )}
-
-        <div>{user.email}</div>
-
-        <button
-          className="btn btn-danger"
-          onClick={onSignOut}
-        >
-          Sign Out
-        </button>
       </div>
     </div>
   );
