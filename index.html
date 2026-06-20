@@ -42,14 +42,16 @@
   --font-display:'Space Grotesk',sans-serif;--font-body:'Inter',sans-serif;
   --font-scale:1;
   --card-padding:16px;
+  --card-gap:10px;
+  --grid-gap:20px;
 }
-html,body{background:#0D0D0F;color:#E8E8F0;font-family:'Inter',sans-serif;min-height:100vh;scroll-behavior:smooth;font-size:calc(14px * var(--font-scale))}
+html,body{background:#0D0D0F;color:#E8E8F0;font-family:'Inter',sans-serif;min-height:100vh;scroll-behavior:smooth}
 button{cursor:pointer;font-family:'Inter',sans-serif;border:none;background:none}
 input,textarea,select{font-family:'Inter',sans-serif}
 ::-webkit-scrollbar{width:6px;height:6px}
 ::-webkit-scrollbar-track{background:#141416}
 ::-webkit-scrollbar-thumb{background:#38384a;border-radius:3px}
-.app{display:flex;min-height:100vh}
+.app{display:flex;min-height:100vh;zoom:var(--font-scale,1)}
 .sidebar{width:220px;min-height:100vh;background:#141416;border-right:1px solid #2a2a35;display:flex;flex-direction:column;position:sticky;top:0;height:100vh;overflow-y:auto;flex-shrink:0}
 .sidebar-logo{padding:24px 20px 16px;font-family:'Space Grotesk',sans-serif;font-size:18px;font-weight:700;color:var(--accent);letter-spacing:-.3px;display:flex;align-items:center;gap:10px}
 .sidebar-logo span{font-size:22px}
@@ -82,7 +84,7 @@ input,textarea,select{font-family:'Inter',sans-serif}
 .filter-select:focus{border-color:var(--accent)}
 .filter-chip{padding:6px 14px;border-radius:30px;font-size:13px;font-weight:500;border:1px solid #2a2a35;background:#1C1C22;color:#9090A8;cursor:pointer;transition:all .15s}
 .filter-chip.active{border-color:var(--accent);background:var(--accent-dim);color:var(--accent)}
-.album-grid{display:grid;gap:20px}
+.album-grid{display:grid;gap:var(--grid-gap,20px)}
 .album-card{background:#1C1C22;border:1px solid #2a2a35;border-radius:14px;overflow:hidden;cursor:pointer;transition:all .2s;display:flex;flex-direction:column;position:relative}
 .album-card:hover{border-color:#38384a;transform:translateY(-3px);box-shadow:0 12px 40px rgba(0,0,0,.5)}
 .album-card.compare-selected{border-color:#4FC3F7;box-shadow:0 0 0 2px rgba(79,195,247,.3)}
@@ -93,7 +95,7 @@ input,textarea,select{font-family:'Inter',sans-serif}
 .album-cover-placeholder{display:flex;align-items:center;justify-content:center;width:100%;height:100%;background:linear-gradient(135deg,#242430 0%,#1C1C22 100%)}
 .album-rank{position:absolute;top:10px;left:10px;background:rgba(13,13,15,.85);backdrop-filter:blur(6px);border-radius:20px;padding:3px 9px;font-size:12px;font-weight:700;color:var(--accent);font-family:'Space Grotesk',sans-serif}
 .tier-badge{position:absolute;top:10px;right:10px;border-radius:8px;padding:3px 10px;font-size:13px;font-weight:700;font-family:'Space Grotesk',sans-serif;backdrop-filter:blur(6px)}
-.album-card-body{padding:var(--card-padding);display:flex;flex-direction:column;gap:10px;flex:1}
+.album-card-body{padding:var(--card-padding);display:flex;flex-direction:column;gap:var(--card-gap,10px);flex:1}
 .album-card-top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
 .album-card-info{flex:1;min-width:0}
 .album-title{font-family:'Space Grotesk',sans-serif;font-size:15px;font-weight:700;color:#E8E8F0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -259,8 +261,8 @@ input,textarea,select{font-family:'Inter',sans-serif}
 .settings-row-sub{font-size:12px;color:#5a5a70;line-height:1.5}
 .settings-row-control{flex-shrink:0}
 /* Toggle switch */
-.toggle{position:relative;width:44px;height:24px;flex-shrink:0}
-.toggle input{opacity:0;width:0;height:0;position:absolute}
+.toggle{position:relative;width:44px;height:24px;flex-shrink:0;cursor:pointer}
+.toggle input{opacity:0;width:0;height:0;position:absolute;pointer-events:none}
 .toggle-track{position:absolute;inset:0;background:#2a2a35;border-radius:12px;transition:background .2s;cursor:pointer}
 .toggle input:checked + .toggle-track{background:var(--accent)}
 .toggle-thumb{position:absolute;top:3px;left:3px;width:18px;height:18px;background:#fff;border-radius:50%;transition:transform .2s;pointer-events:none}
@@ -320,11 +322,9 @@ const DEFAULT_SETTINGS = {
   cardDensity: "normal",        // compact | normal | comfortable
   fontScale: 1,                 // 0.85 | 1 | 1.15
   scoreRingStyle: "ring",       // ring | badge | text
-  showCoverArt: true,
   animationsEnabled: true,
   // Rating
   ratingStep: 0.1,              // 0.1 | 0.5 | 1
-  ratingFormat: "decimal",      // decimal | whole | stars
   showTierBadge: true,
   autoSaveOnClose: false,
   // Tiers
@@ -340,16 +340,6 @@ const DEFAULT_SETTINGS = {
   showFavSong: true,
   showDateAdded: true,
   showScoreRing: true,
-  // Milestones
-  milestoneEnabled: true,
-  milestones: {
-    albums10: true,
-    albums50: true,
-    songs100: true,
-    songs500: true,
-    perfectScore: true,
-    tierS: true,
-  },
 };
 
 function loadSettings() {
@@ -375,7 +365,11 @@ function applySettingsToDOM(s) {
   root.style.setProperty("--accent-dim", `rgba(${r},${g},${b},0.12)`);
   root.style.setProperty("--font-scale", s.fontScale);
   const densityPad = { compact: "10px", normal: "16px", comfortable: "22px" };
+  const densityCardGap = { compact: "6px", normal: "10px", comfortable: "14px" };
+  const densityGridGap = { compact: "12px", normal: "20px", comfortable: "28px" };
   root.style.setProperty("--card-padding", densityPad[s.cardDensity] || "16px");
+  root.style.setProperty("--card-gap", densityCardGap[s.cardDensity] || "10px");
+  root.style.setProperty("--grid-gap", densityGridGap[s.cardDensity] || "20px");
 }
 
 // ── Firebase helpers ──────────────────────────────────────────────────────
@@ -898,11 +892,18 @@ const ACCENT_COLORS = [
 
 function Toggle({ checked, onChange }) {
   return (
-    <label className="toggle">
-      <input type="checkbox" checked={checked} onChange={e => onChange(e.target.checked)} />
+    <div
+      className="toggle"
+      role="switch"
+      aria-checked={checked}
+      tabIndex={0}
+      onClick={() => onChange(!checked)}
+      onKeyDown={e => { if (e.key === " " || e.key === "Enter") { e.preventDefault(); onChange(!checked); } }}
+    >
+      <input type="checkbox" checked={checked} readOnly tabIndex={-1} />
       <div className="toggle-track"/>
       <div className="toggle-thumb"/>
-    </label>
+    </div>
   );
 }
 
@@ -923,7 +924,6 @@ function SettingsView({ settings, onSave, albums, log, onExport, onImport, onCle
     { id: "tiers",      icon: "🏅", label: "Tiers" },
     { id: "library",    icon: "📚", label: "Library" },
     { id: "cards",      icon: "🃏", label: "Cards" },
-    { id: "milestones", icon: "🎯", label: "Milestones" },
     { id: "data",       icon: "💾", label: "Data & Account" },
   ];
 
@@ -971,7 +971,7 @@ function SettingsView({ settings, onSave, albums, log, onExport, onImport, onCle
               <div className="settings-row">
                 <div className="settings-row-info">
                   <div className="settings-row-label">Card density</div>
-                  <div className="settings-row-sub">Controls the padding inside album cards.</div>
+                  <div className="settings-row-sub">Controls the padding and spacing of album cards across the library.</div>
                 </div>
                 <div className="settings-row-control">
                   <div className="density-options">
@@ -1035,14 +1035,6 @@ function SettingsView({ settings, onSave, albums, log, onExport, onImport, onCle
 
               <div className="settings-row">
                 <div className="settings-row-info">
-                  <div className="settings-row-label">Show cover art</div>
-                  <div className="settings-row-sub">Display album artwork on cards. Disable for a faster view.</div>
-                </div>
-                <div className="settings-row-control"><Toggle checked={local.showCoverArt} onChange={v => set("showCoverArt", v)} /></div>
-              </div>
-
-              <div className="settings-row">
-                <div className="settings-row-info">
                   <div className="settings-row-label">Animations</div>
                   <div className="settings-row-sub">Card hover effects and transitions.</div>
                 </div>
@@ -1069,28 +1061,6 @@ function SettingsView({ settings, onSave, albums, log, onExport, onImport, onCle
                   <option value={0.5}>0.5 — Half</option>
                   <option value={1}>1.0 — Whole</option>
                 </select>
-              </div>
-            </div>
-
-            <div className="settings-row">
-              <div className="settings-row-info">
-                <div className="settings-row-label">Score format</div>
-                <div className="settings-row-sub">How scores are displayed everywhere.</div>
-              </div>
-              <div className="settings-row-control">
-                <div style={{display:"flex",gap:8}}>
-                  {[
-                    { id: "decimal", label: "8.4", desc: "Decimal" },
-                    { id: "whole",   label: "8",   desc: "Whole" },
-                    { id: "stars",   label: "★★★★☆", desc: "Stars" },
-                  ].map(opt => (
-                    <button key={opt.id} onClick={() => set("ratingFormat", opt.id)}
-                      style={{padding:"6px 12px",borderRadius:8,border:"1px solid "+(local.ratingFormat===opt.id?"var(--accent)":"#2a2a35"),background:local.ratingFormat===opt.id?"var(--accent-dim)":"#1C1C22",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3,transition:"all .15s",minWidth:64}}>
-                      <span style={{fontFamily:"'Space Grotesk',sans-serif",fontSize:14,fontWeight:700,color:local.ratingFormat===opt.id?"var(--accent)":"#E8E8F0"}}>{opt.label}</span>
-                      <span style={{fontSize:10,color:"#5a5a70"}}>{opt.desc}</span>
-                    </button>
-                  ))}
-                </div>
               </div>
             </div>
 
@@ -1220,44 +1190,6 @@ function SettingsView({ settings, onSave, albums, log, onExport, onImport, onCle
           </div>
         )}
 
-        {/* ── MILESTONES ── */}
-        {activeTab === "milestones" && (
-          <div className="settings-section">
-            <div className="settings-section-title">Milestones</div>
-            <div className="settings-section-desc">Get a toast notification when you hit a milestone.</div>
-
-            <div className="settings-row">
-              <div className="settings-row-info">
-                <div className="settings-row-label">Enable milestones</div>
-                <div className="settings-row-sub">Master toggle for all milestone notifications.</div>
-              </div>
-              <div className="settings-row-control"><Toggle checked={local.milestoneEnabled} onChange={v => set("milestoneEnabled", v)} /></div>
-            </div>
-
-            {local.milestoneEnabled && (
-              <div style={{background:"#1C1C22",border:"1px solid #2a2a35",borderRadius:12,padding:"4px 16px",marginTop:12}}>
-                {[
-                  { key: "albums10",    icon: "🎵", name: "10 albums",      desc: "Added your 10th album to the library" },
-                  { key: "albums50",    icon: "📦", name: "50 albums",      desc: "Your collection hits 50 albums" },
-                  { key: "songs100",    icon: "💯", name: "100 songs rated", desc: "Rated a hundred individual tracks" },
-                  { key: "songs500",    icon: "🔥", name: "500 songs rated", desc: "A serious discography in your vault" },
-                  { key: "perfectScore",icon: "✨", name: "Perfect 10",     desc: "Any song receives a 10/10 rating" },
-                  { key: "tierS",       icon: "🏆", name: "S-tier album",   desc: "An album reaches S tier" },
-                ].map(m => (
-                  <div key={m.key} className="milestone-item">
-                    <div className="milestone-icon">{m.icon}</div>
-                    <div className="milestone-info">
-                      <div className="milestone-name">{m.name}</div>
-                      <div className="milestone-desc">{m.desc}</div>
-                    </div>
-                    <Toggle checked={local.milestones[m.key]} onChange={v => setNested("milestones", m.key, v)} />
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
         {/* ── DATA & ACCOUNT ── */}
         {activeTab === "data" && (
           <>
@@ -1363,27 +1295,25 @@ function AlbumCard({ album, rank, onClick, compareMode, isCompareSelected, toggl
     <div className={"album-card"+(isCompareSelected?" compare-selected":"")}
       onClick={compareMode ? () => toggleCompare(album.id) : onClick}
       style={!settings.animationsEnabled ? {transition:"none"} : {}}>
-      {settings.showCoverArt && (
-        <div className="album-cover">
-          {album.cover ? <img src={album.cover} alt={album.title}/> : <div className="album-cover-placeholder" style={{fontSize:48}}>🎵</div>}
-          {compareMode ? <div className={"compare-check"+(isCompareSelected?" checked":"")}>{isCompareSelected?"✓":""}</div> : <div className="album-rank">#{rank}</div>}
-          {settings.showTierBadge && tier && <div className="tier-badge" style={{color:tier.color,background:tier.bg}}>{tier.label}</div>}
-        </div>
-      )}
+      <div className="album-cover">
+        {album.cover ? <img src={album.cover} alt={album.title}/> : <div className="album-cover-placeholder" style={{fontSize:48}}>🎵</div>}
+        {compareMode ? <div className={"compare-check"+(isCompareSelected?" checked":"")}>{isCompareSelected?"✓":""}</div> : <div className="album-rank">#{rank}</div>}
+        {settings.showTierBadge && tier && <div className="tier-badge" style={{color:tier.color,background:tier.bg}}>{tier.label}</div>}
+      </div>
       <div className="album-card-body">
         <div className="album-card-top">
           <div className="album-card-info">
             <div className="album-title">{album.title||"Untitled"}</div>
             <div className="album-artist">{album.artist||"Unknown Artist"}</div>
           </div>
-          {settings.showScoreRing && <ScoreRing score={avg} size={52} style={settings.scoreRingStyle} format={settings.ratingFormat} />}
+          {settings.showScoreRing && <ScoreRing score={avg} size={52} style={settings.scoreRingStyle} />}
         </div>
         <div className="album-meta">
           {settings.showYear && album.year && <span className="meta-tag">{album.year}</span>}
           {settings.showGenre && album.genre && <span className="meta-tag">{album.genre}</span>}
           {settings.showTrackCount && <span className="meta-tag">{album.songs.length} tracks</span>}
         </div>
-        {settings.showFavSong && fav && <div className="album-fav">⭐ <strong>{fav.title||"Track "+(album.songs.indexOf(fav)+1)}</strong> ({formatRating(fav.rating, settings.ratingFormat)})</div>}
+        {settings.showFavSong && fav && <div className="album-fav">⭐ <strong>{fav.title||"Track "+(album.songs.indexOf(fav)+1)}</strong> ({formatRating(fav.rating)})</div>}
         {settings.showDateAdded && <div style={{fontSize:11,color:"#5a5a70"}}>Added {formatDate(album.dateAdded)}</div>}
       </div>
     </div>
@@ -1450,7 +1380,7 @@ function AlbumDetail({ album, onClose, onSave, onDelete, onEdit, settings }) {
               {tier && <span className="tier-badge" style={{color:tier.color,background:tier.bg,position:"static"}}>{tier.label} tier</span>}
             </div>
             <div className="detail-score-area">
-              <ScoreRing score={avg} size={64} style={settings.scoreRingStyle} format={settings.ratingFormat} />
+              <ScoreRing score={avg} size={64} style={settings.scoreRingStyle} />
               <div>
                 <div style={{fontSize:13,color:"#5a5a70"}}>Album average</div>
                 <div style={{display:"flex",alignItems:"baseline",gap:4}}>
@@ -1508,7 +1438,7 @@ function AlbumDetail({ album, onClose, onSave, onDelete, onEdit, settings }) {
                     {song.note && <div className="song-note">{song.note}</div>}
                   </div>
                   {isFav && <span className="song-fav-star">⭐</span>}
-                  <span className="song-rating-display" style={{color:ratingColor(rn)}}>{rn!==null?formatRating(rn,settings.ratingFormat):<span style={{color:"#5a5a70"}}>—</span>}</span>
+                  <span className="song-rating-display" style={{color:ratingColor(rn)}}>{rn!==null?formatRating(rn):<span style={{color:"#5a5a70"}}>—</span>}</span>
                   <button className="btn btn-ghost btn-sm" style={{opacity:0.5,fontSize:12}} onClick={() => setEditingSongId(song.id)}>Edit</button>
                 </div>
               );
@@ -1627,10 +1557,10 @@ function RankingsView({ ranked, onSelect, settings }) {
             <div className="rank-info">
               <div className="rank-title">{album.title}</div>
               <div className="rank-artist">{album.artist}{album.year?" · "+album.year:""}</div>
-              {fav && <div className="rank-songs">⭐ {fav.title} ({formatRating(fav.rating, settings.ratingFormat)})</div>}
+              {fav && <div className="rank-songs">⭐ {fav.title} ({formatRating(fav.rating)})</div>}
             </div>
             {tier && <span className="tier-badge" style={{color:tier.color,background:tier.bg,position:"static"}}>{tier.label}</span>}
-            <ScoreRing score={album.avg} size={52} style={settings.scoreRingStyle} format={settings.ratingFormat} />
+            <ScoreRing score={album.avg} size={52} style={settings.scoreRingStyle} />
           </div>
         );
       })}
@@ -1646,7 +1576,7 @@ function ArtistView({ stats, onSelect, settings }) {
         <div key={a.name} className="artist-card">
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
             <div className="artist-name" style={{cursor:"pointer",color:"var(--accent)"}} onClick={() => onSelect(a.name)}>{a.name}</div>
-            {a.avgRating!==null && <ScoreRing score={a.avgRating} size={52} style={settings.scoreRingStyle} format={settings.ratingFormat} />}
+            {a.avgRating!==null && <ScoreRing score={a.avgRating} size={52} style={settings.scoreRingStyle} />}
           </div>
           <div className="artist-meta">
             <div className="artist-stat"><div className="artist-stat-val">{a.albums}</div><div className="artist-stat-lbl">Albums</div></div>
@@ -1729,7 +1659,7 @@ function StatsView({ albums, globalStats, ranked, settings }) {
                   <div style={{fontSize:13,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.title||("Track "+s.trackNum)}</div>
                   <div style={{fontSize:11,color:"#5a5a70"}}>{s.albumTitle}</div>
                 </div>
-                <span style={{fontFamily:"'Space Grotesk',sans-serif",fontSize:14,fontWeight:700,color:ratingColor(s.rating)}}>{formatRating(s.rating,settings.ratingFormat)}</span>
+                <span style={{fontFamily:"'Space Grotesk',sans-serif",fontSize:14,fontWeight:700,color:ratingColor(s.rating)}}>{formatRating(s.rating)}</span>
               </div>
             ))}
           </div>
@@ -1742,7 +1672,7 @@ function StatsView({ albums, globalStats, ranked, settings }) {
                   <div style={{fontSize:13,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.title||("Track "+s.trackNum)}</div>
                   <div style={{fontSize:11,color:"#5a5a70"}}>{s.albumTitle}</div>
                 </div>
-                <span style={{fontFamily:"'Space Grotesk',sans-serif",fontSize:14,fontWeight:700,color:ratingColor(s.rating)}}>{formatRating(s.rating,settings.ratingFormat)}</span>
+                <span style={{fontFamily:"'Space Grotesk',sans-serif",fontSize:14,fontWeight:700,color:ratingColor(s.rating)}}>{formatRating(s.rating)}</span>
               </div>
             ))}
           </div>
@@ -1831,13 +1761,13 @@ function ComparePanel({ albums, onClose, settings }) {
         <div className="compare-album-header compare-col">
           <div className="compare-album-cover">{a.cover?<img src={a.cover} alt=""/>:"🎵"}</div>
           <div><div style={{fontFamily:"'Space Grotesk',sans-serif",fontSize:16,fontWeight:700}}>{a.title}</div><div style={{fontSize:13,color:"#9090A8"}}>{a.artist}</div></div>
-          <ScoreRing score={a.avg} size={56} style={settings.scoreRingStyle} format={settings.ratingFormat} />
+          <ScoreRing score={a.avg} size={56} style={settings.scoreRingStyle} />
         </div>
         <div style={{textAlign:"center",fontFamily:"'Space Grotesk',sans-serif",fontSize:20,fontWeight:700,color:"#5a5a70",padding:"0 8px"}}>VS</div>
         <div className="compare-album-header compare-col">
           <div className="compare-album-cover">{b.cover?<img src={b.cover} alt=""/>:"🎵"}</div>
           <div><div style={{fontFamily:"'Space Grotesk',sans-serif",fontSize:16,fontWeight:700}}>{b.title}</div><div style={{fontSize:13,color:"#9090A8"}}>{b.artist}</div></div>
-          <ScoreRing score={b.avg} size={56} style={settings.scoreRingStyle} format={settings.ratingFormat} />
+          <ScoreRing score={b.avg} size={56} style={settings.scoreRingStyle} />
         </div>
         <button className="btn btn-ghost btn-sm" style={{alignSelf:"flex-start",marginLeft:8}} onClick={onClose}>✕</button>
       </div>
