@@ -308,6 +308,22 @@ input,textarea,select{font-family:'Inter',sans-serif}
 .card-fields-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 /* Keyboard shortcut badge */
 .kbd{display:inline-block;background:#242430;border:1px solid #38384a;border-radius:4px;padding:1px 6px;font-size:11px;color:#9090A8;font-family:monospace;margin-left:6px}
+
+/* ── SFX settings additions ─────────────────────────────────────────── */
+.sfx-volume-row{display:flex;align-items:center;gap:14px}
+.sfx-slider-wrap{display:flex;align-items:center;gap:12px;width:220px}
+.sfx-slider{-webkit-appearance:none;appearance:none;width:100%;height:4px;border-radius:2px;background:#242430;outline:none;cursor:pointer}
+.sfx-slider::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:16px;height:16px;border-radius:50%;background:var(--accent);cursor:pointer;transition:transform .1s}
+.sfx-slider::-webkit-slider-thumb:hover{transform:scale(1.2)}
+.sfx-slider::-moz-range-thumb{width:16px;height:16px;border-radius:50%;background:var(--accent);cursor:pointer;border:none}
+.sfx-slider:disabled{opacity:.35;cursor:not-allowed}
+.sfx-slider:disabled::-webkit-slider-thumb{cursor:not-allowed}
+.sfx-pct{font-family:'Space Grotesk',sans-serif;font-size:13px;font-weight:700;color:var(--accent);min-width:36px;text-align:right}
+.sfx-pct.muted{color:#5a5a70}
+.sfx-test-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px;margin-top:18px}
+.sfx-test-btn{display:flex;flex-direction:column;align-items:center;gap:6px;padding:12px 10px;background:#1C1C22;border:1px solid #2a2a35;border-radius:10px;cursor:pointer;transition:all .15s;color:#9090A8;font-size:12px;font-weight:600}
+.sfx-test-btn:hover{border-color:var(--accent);background:var(--accent-dim);color:var(--accent);transform:translateY(-1px)}
+.sfx-test-btn .sfx-test-icon{font-size:18px}
 </style>
 </head>
 <body>
@@ -340,6 +356,9 @@ const DEFAULT_SETTINGS = {
   showFavSong: true,
   showDateAdded: true,
   showScoreRing: true,
+  // Sound
+  sfxEnabled: true,
+  sfxVolume: 0.6,                // 0..1
 };
 
 function loadSettings() {
@@ -372,16 +391,250 @@ function applySettingsToDOM(s) {
   root.style.setProperty("--grid-gap", densityGridGap[s.cardDensity] || "20px");
 }
 
+// ── Sound engine (Web Audio API — synthesized, no external files) ──────────
+// A tiny, dependency-free synth that produces short, pleasant UI sounds.
+// Centralized so the whole app can fire `sfx.play("name")` without caring
+// about volume/enabled state — those live in settings and are read live.
+const SFX = (() => {
+  let ctx = null;
+  let masterGain = null;
+  let enabled = true;
+  let volume = 0.6;
+  let lastPlay = {}; // simple per-sound throttle so rapid-fire events (e.g. slider drag) don't clip/distort
+
+  function ensureCtx() {
+    if (ctx) return ctx;
+    try {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      ctx = new AC();
+      masterGain = ctx.createGain();
+      masterGain.gain.value = volume;
+      masterGain.connect(ctx.destination);
+    } catch(e) { ctx = null; }
+    return ctx;
+  }
+
+  function configure(s) {
+    enabled = !!s.sfxEnabled;
+    volume = s.sfxVolume != null ? s.sfxVolume : 0.6;
+    if (masterGain) masterGain.gain.value = volume;
+  }
+
+  function resume() {
+    // Browsers require a user gesture before audio can play — call this on first interaction.
+    const c = ensureCtx();
+    if (c && c.state === "suspended") c.resume().catch(()=>{});
+  }
+
+  function now() { return ctx ? ctx.currentTime : 0; }
+
+  // Core oscillator-based tone with an ADSR-ish envelope.
+  function tone({ freq = 440, type = "sine", duration = 0.12, gain = 0.25, delay = 0, attack = 0.005, release, detune = 0, freqEnd = null }) {
+    if (!enabled || volume <= 0) return;
+    const c = ensureCtx();
+    if (!c) return;
+    const t0 = c.currentTime + delay;
+    const osc = c.createOscillator();
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, t0);
+    if (freqEnd !== null) osc.frequency.exponentialRampToValueAtTime(Math.max(freqEnd,1), t0 + duration);
+    if (detune) osc.detune.setValueAtTime(detune, t0);
+    const g = c.createGain();
+    const rel = release != null ? release : duration * 0.7;
+    g.gain.setValueAtTime(0, t0);
+    g.gain.linearRampToValueAtTime(gain, t0 + attack);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + attack + rel);
+    osc.connect(g); g.connect(masterGain);
+    osc.start(t0);
+    osc.stop(t0 + attack + rel + 0.05);
+  }
+
+  // Soft filtered noise burst — used for clicks/whooshes.
+  function noise({ duration = 0.08, gain = 0.15, delay = 0, filterFreq = 2000, filterType = "highpass", filterQ = 0.7 }) {
+    if (!enabled || volume <= 0) return;
+    const c = ensureCtx();
+    if (!c) return;
+    const t0 = c.currentTime + delay;
+    const bufferSize = Math.max(1, Math.floor(c.sampleRate * duration));
+    const buffer = c.createBuffer(1, bufferSize, c.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / bufferSize);
+    const src = c.createBufferSource();
+    src.buffer = buffer;
+    const filt = c.createBiquadFilter();
+    filt.type = filterType; filt.frequency.value = filterFreq; filt.Q.value = filterQ;
+    const g = c.createGain();
+    g.gain.setValueAtTime(gain, t0);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + duration);
+    src.connect(filt); filt.connect(g); g.connect(masterGain);
+    src.start(t0); src.stop(t0 + duration + 0.02);
+  }
+
+  function throttle(name, ms) {
+    const t = performance.now();
+    if (lastPlay[name] && t - lastPlay[name] < ms) return false;
+    lastPlay[name] = t;
+    return true;
+  }
+
+  // ── Sound library ──────────────────────────────────────────────────────
+  const sounds = {
+    // Light UI tap — nav clicks, filter chips, tab switches
+    click() {
+      if (!throttle("click", 40)) return;
+      tone({ freq: 1200, type: "sine", duration: 0.045, gain: 0.14, attack: 0.002 });
+    },
+    // Slightly meatier click — primary buttons
+    tap() {
+      if (!throttle("tap", 40)) return;
+      tone({ freq: 700, type: "triangle", duration: 0.06, gain: 0.18, attack: 0.002 });
+      tone({ freq: 1400, type: "sine", duration: 0.04, gain: 0.07, delay: 0.01 });
+    },
+    // Toggle flipped on
+    toggleOn() {
+      tone({ freq: 520, freqEnd: 980, type: "sine", duration: 0.09, gain: 0.16, attack: 0.003 });
+    },
+    // Toggle flipped off
+    toggleOff() {
+      tone({ freq: 760, freqEnd: 380, type: "sine", duration: 0.09, gain: 0.14, attack: 0.003 });
+    },
+    // Rating slider drag — tiny tick, throttled hard so dragging doesn't spam
+    ratingTick(value) {
+      if (!throttle("ratingTick", 55)) return;
+      const v = value == null ? 5 : Number(value);
+      const f = 380 + (v / 10) * 760; // pitch rises with rating
+      tone({ freq: f, type: "square", duration: 0.025, gain: 0.05, attack: 0.001 });
+    },
+    // Rating committed (clicked a number, or released slider) — confirm chirp
+    ratingSet(value) {
+      const v = value == null ? 5 : Number(value);
+      const f = 440 + (v / 10) * 660;
+      tone({ freq: f, type: "sine", duration: 0.09, gain: 0.16, attack: 0.002 });
+      tone({ freq: f * 1.5, type: "sine", duration: 0.07, gain: 0.07, delay: 0.025 });
+    },
+    // Perfect 10 — special little flourish
+    perfectTen() {
+      [0,1,2].forEach((i) => tone({ freq: 880 * Math.pow(1.2, i), type: "triangle", duration: 0.12, gain: 0.14 - i*0.02, delay: i*0.06, attack: 0.004 }));
+    },
+    // Generic save success
+    save() {
+      tone({ freq: 600, type: "sine", duration: 0.08, gain: 0.16, attack: 0.003 });
+      tone({ freq: 900, type: "sine", duration: 0.12, gain: 0.16, delay: 0.07, attack: 0.003 });
+    },
+    // Album added to library
+    addAlbum() {
+      tone({ freq: 523.25, type: "triangle", duration: 0.09, gain: 0.15, delay: 0,    attack: 0.003 });
+      tone({ freq: 659.25, type: "triangle", duration: 0.09, gain: 0.15, delay: 0.07, attack: 0.003 });
+      tone({ freq: 783.99, type: "triangle", duration: 0.14, gain: 0.16, delay: 0.14, attack: 0.003 });
+    },
+    // Delete — short descending thud
+    delete() {
+      tone({ freq: 360, freqEnd: 140, type: "sawtooth", duration: 0.16, gain: 0.13, attack: 0.002 });
+      noise({ duration: 0.05, gain: 0.08, filterFreq: 800, filterType: "lowpass" });
+    },
+    // Undo restore
+    undo() {
+      tone({ freq: 300, freqEnd: 620, type: "sine", duration: 0.12, gain: 0.15, attack: 0.003 });
+    },
+    // Open a panel / modal / album detail
+    open() {
+      tone({ freq: 420, freqEnd: 700, type: "sine", duration: 0.1, gain: 0.1, attack: 0.004 });
+    },
+    // Close a panel / modal
+    close() {
+      tone({ freq: 500, freqEnd: 300, type: "sine", duration: 0.08, gain: 0.09, attack: 0.003 });
+    },
+    // Switching main nav views (library/rankings/etc.)
+    navSwitch() {
+      if (!throttle("navSwitch", 60)) return;
+      tone({ freq: 880, type: "sine", duration: 0.05, gain: 0.1, attack: 0.002 });
+    },
+    // Tier reveal — color/weight communicated by which variant fires
+    tierReveal(tierLabel) {
+      const map = {
+        S: [987.77, 1318.51, 1567.98],
+        A: [880, 1108.73],
+        B: [659.25, 830.61],
+        C: [523.25, 659.25],
+        D: [392, 466.16],
+        F: [261.63, 220],
+      };
+      const freqs = map[tierLabel] || map.B;
+      freqs.forEach((f, i) => tone({ freq: f, type: "triangle", duration: 0.13, gain: 0.13 - i*0.02, delay: i*0.05, attack: 0.004 }));
+    },
+    // Comparison mode select/deselect
+    compareSelect() {
+      tone({ freq: 700, type: "sine", duration: 0.06, gain: 0.13, attack: 0.002 });
+    },
+    compareDeselect() {
+      tone({ freq: 500, type: "sine", duration: 0.05, gain: 0.1, attack: 0.002 });
+    },
+    // Compare VS reveal
+    compareReveal() {
+      tone({ freq: 440, type: "square", duration: 0.05, gain: 0.08, delay: 0,    attack: 0.002 });
+      tone({ freq: 440, type: "square", duration: 0.05, gain: 0.08, delay: 0.09, attack: 0.002 });
+      tone({ freq: 660, type: "triangle", duration: 0.14, gain: 0.13, delay: 0.18, attack: 0.003 });
+    },
+    // Winner highlight in compare panel (used sparingly / on demand)
+    winner() {
+      tone({ freq: 784, freqEnd: 1046.5, type: "triangle", duration: 0.1, gain: 0.13, attack: 0.003 });
+    },
+    // Toast / generic notification
+    toast() {
+      tone({ freq: 1046.5, type: "sine", duration: 0.05, gain: 0.09, attack: 0.002 });
+    },
+    // Error / invalid action
+    error() {
+      tone({ freq: 220, type: "square", duration: 0.1, gain: 0.1, attack: 0.002 });
+      tone({ freq: 180, type: "square", duration: 0.12, gain: 0.09, delay: 0.08, attack: 0.002 });
+    },
+    // File upload / import
+    upload() {
+      tone({ freq: 500, freqEnd: 900, type: "sine", duration: 0.14, gain: 0.13, attack: 0.005 });
+    },
+    // Export / download
+    download() {
+      tone({ freq: 900, freqEnd: 500, type: "sine", duration: 0.14, gain: 0.13, attack: 0.005 });
+    },
+    // Search box typing — extremely soft tick, throttled
+    type() {
+      if (!throttle("type", 70)) return;
+      tone({ freq: 1800, type: "sine", duration: 0.015, gain: 0.025, attack: 0.001 });
+    },
+    // Hover whoosh for cards (very subtle, optional — wired to filter chips/cards)
+    hover() {
+      if (!throttle("hover", 90)) return;
+      noise({ duration: 0.03, gain: 0.025, filterFreq: 3500, filterType: "highpass" });
+    },
+  };
+
+  function play(name, ...args) {
+    if (!enabled || volume <= 0) return;
+    resume();
+    const fn = sounds[name];
+    if (fn) { try { fn(...args); } catch(e) {} }
+  }
+
+  return { configure, play, resume };
+})();
+
+function useSfx(settings) {
+  useEffect(() => { SFX.configure(settings); }, [settings.sfxEnabled, settings.sfxVolume]);
+  return useCallback((name, ...args) => SFX.play(name, ...args), []);
+}
+
 // ── Firebase helpers ──────────────────────────────────────────────────────
-function LoginScreen() {
+function LoginScreen({ sfx }) {
   const [error, setError] = React.useState(null);
   const [busy,  setBusy]  = React.useState(false);
   async function signIn() {
+    SFX.resume();
+    sfx("tap");
     setBusy(true); setError(null);
     try {
       const provider = new firebase.auth.GoogleAuthProvider();
       await auth.signInWithPopup(provider);
-    } catch(e) { setError(e.message); setBusy(false); }
+    } catch(e) { setError(e.message); setBusy(false); sfx("error"); }
   }
   return (
     <div className="auth-screen">
@@ -411,8 +664,15 @@ function SyncIndicator({ syncing }) {
 function Root() {
   const [user, setUser] = React.useState(undefined);
   React.useEffect(() => { return auth.onAuthStateChanged(u => setUser(u || null)); }, []);
+  // Unlock audio on first user gesture anywhere in the app (browser autoplay policy).
+  React.useEffect(() => {
+    const unlock = () => { SFX.resume(); window.removeEventListener("pointerdown", unlock); window.removeEventListener("keydown", unlock); };
+    window.addEventListener("pointerdown", unlock, { once: true });
+    window.addEventListener("keydown", unlock, { once: true });
+    return () => { window.removeEventListener("pointerdown", unlock); window.removeEventListener("keydown", unlock); };
+  }, []);
   if (user === undefined) return <div className="auth-screen"><div style={{color:"#5a5a70",fontSize:14}}>Loading…</div></div>;
-  if (!user) return <LoginScreen/>;
+  if (!user) return <LoginScreen sfx={(n)=>SFX.play(n)}/>;
   return <App user={user}/>;
 }
 
@@ -534,6 +794,7 @@ function App({ user }) {
     applySettingsToDOM(s);
     return s;
   });
+  const sfx = useSfx(settings);
 
   const pendingAlbumWrites = useRef({});
   const pendingLogWrites   = useRef({});
@@ -670,7 +931,9 @@ function App({ user }) {
     setSettings(newSettings);
     saveSettings(newSettings);
     applySettingsToDOM(newSettings);
+    SFX.configure(newSettings);
     showToast("Settings saved", "⚙️");
+    sfx("save");
     // Apply default sort/filter from settings
     setSortBy(newSettings.defaultSort);
     setFilterTier(newSettings.defaultFilter);
@@ -678,12 +941,14 @@ function App({ user }) {
 
   function addLog(entry) { setLog(prev => [{ ...entry, id: crypto.randomUUID(), ts: new Date().toISOString() }, ...prev]); }
   function showToast(msg, icon = "✓") { setToast({ msg, icon }); setTimeout(() => setToast(null), 2500); }
-  function handleSignOut() { auth.signOut(); }
+  function handleSignOut() { sfx("click"); auth.signOut(); }
   function saveAlbum(album, logEntries = []) {
+    const isNew = !albums.find(a => a.id === album.id);
     setAlbums(prev => { const idx = prev.findIndex(a => a.id === album.id); if (idx === -1) return [...prev, album]; const next = [...prev]; next[idx] = album; return next; });
     if (selectedAlbum && selectedAlbum.id === album.id) setSelectedAlbum(album);
     logEntries.forEach(e => addLog(e));
     showToast("Saved");
+    sfx(isNew ? "addAlbum" : "save");
   }
   function deleteAlbum(id) {
     const album = albums.find(a => a.id === id);
@@ -692,6 +957,7 @@ function App({ user }) {
     setSelectedAlbum(null);
     addLog({ type: "delete", albumTitle: album.title, albumArtist: album.artist });
     showToast("Album deleted", "🗑");
+    sfx("delete");
   }
   function undoDelete() {
     if (!undoData) return;
@@ -699,6 +965,7 @@ function App({ user }) {
     setAlbums(prev => [...prev, undoData.album]);
     setUndoData(null);
     showToast("Restored!", "↩️");
+    sfx("undo");
   }
   function handleExport() {
     const blob = new Blob([JSON.stringify({ albums, log }, null, 2)], { type: "application/json" });
@@ -706,6 +973,7 @@ function App({ user }) {
     const a = document.createElement("a");
     a.href = url; a.download = `waxify-${new Date().toISOString().slice(0,10)}.json`;
     a.click(); URL.revokeObjectURL(url); showToast("Exported", "💾");
+    sfx("download");
   }
   function handleImport(e) {
     const file = e.target.files[0]; if (!file) return;
@@ -713,17 +981,19 @@ function App({ user }) {
     reader.onload = ev => {
       try {
         const data = JSON.parse(ev.target.result);
-        if (data.albums) { setAlbums(data.albums); if (data.log) setLog(data.log); showToast(`Imported ${data.albums.length} albums`, "📂"); }
-        else if (Array.isArray(data)) { setAlbums(data); showToast(`Imported ${data.length} albums`, "📂"); }
-      } catch { showToast("Invalid file", "✗"); }
+        if (data.albums) { setAlbums(data.albums); if (data.log) setLog(data.log); showToast(`Imported ${data.albums.length} albums`, "📂"); sfx("upload"); }
+        else if (Array.isArray(data)) { setAlbums(data); showToast(`Imported ${data.length} albums`, "📂"); sfx("upload"); }
+      } catch { showToast("Invalid file", "✗"); sfx("error"); }
     };
     reader.readAsText(file); e.target.value = "";
   }
   function toggleCompare(id) {
     setCompareIds(prev => {
-      if (prev.includes(id)) return prev.filter(x => x !== id);
-      if (prev.length >= 2) return [prev[1], id];
-      return [...prev, id];
+      if (prev.includes(id)) { sfx("compareDeselect"); return prev.filter(x => x !== id); }
+      const next = prev.length >= 2 ? [prev[1], id] : [...prev, id];
+      sfx("compareSelect");
+      if (next.length === 2) setTimeout(() => sfx("compareReveal"), 150);
+      return next;
     });
   }
 
@@ -786,7 +1056,7 @@ function App({ user }) {
         <div className="sidebar-logo"><span>🎧</span><span className="logo-text">Waxify</span></div>
         <nav className="sidebar-nav">
           {navItems.map(n => (
-            <button key={n.id} className={"nav-btn" + (view === n.id ? " active" : "")} onClick={() => setView(n.id)}>
+            <button key={n.id} className={"nav-btn" + (view === n.id ? " active" : "")} onClick={() => { setView(n.id); sfx("navSwitch"); }}>
               <span className="icon">{n.icon}</span><span className="nav-label">{n.label}</span>
               {n.id === "log" && log.length > 0 && <span style={{marginLeft:"auto",background:"var(--accent-dim)",color:"var(--accent)",fontSize:10,padding:"1px 6px",borderRadius:10,fontWeight:700}}>{log.length}</span>}
             </button>
@@ -813,14 +1083,14 @@ function App({ user }) {
             <>
               <div className="search-box">
                 <span className="search-icon">🔍</span>
-                <input placeholder="Search albums, artists…" value={search} onChange={e => setSearch(e.target.value)} />
+                <input placeholder="Search albums, artists…" value={search} onChange={e => { setSearch(e.target.value); sfx("type"); }} />
               </div>
-              <button className={"btn btn-sm " + (compareMode ? "btn-primary" : "btn-ghost")} onClick={() => { setCompareMode(m => !m); setCompareIds([]); }}>
+              <button className={"btn btn-sm " + (compareMode ? "btn-primary" : "btn-ghost")} onClick={() => { setCompareMode(m => !m); setCompareIds([]); sfx("click"); }}>
                 {compareMode ? "✓ Comparing" : "⚖️ Compare"}
               </button>
               <button className="btn btn-ghost btn-sm" onClick={handleExport}>💾 Export</button>
               <label className="btn btn-ghost btn-sm" style={{cursor:"pointer"}}>📂 Import<input type="file" accept=".json" style={{display:"none"}} onChange={handleImport} /></label>
-              <button className="btn btn-primary" onClick={() => setShowAddModal(true)}>＋ Add Album</button>
+              <button className="btn btn-primary" onClick={() => { setShowAddModal(true); sfx("open"); }}>＋ Add Album</button>
               <SyncIndicator syncing={syncing}/>
               <button className="btn btn-ghost btn-sm" title={"Signed in as "+user.email} onClick={handleSignOut} style={{gap:6}}>
                 {user.photoURL ? <img src={user.photoURL} style={{width:20,height:20,borderRadius:"50%",objectFit:"cover"}} alt=""/> : "👤"}
@@ -831,17 +1101,17 @@ function App({ user }) {
         </div>
 
         <div className="content">
-          {view === "library" && <LibraryView albums={filtered} filterTier={filterTier} setFilterTier={setFilterTier} sortBy={sortBy} setSortBy={setSortBy} onSelect={a => { if (!compareMode) setSelectedAlbum(a); }} onAdd={() => setShowAddModal(true)} compareMode={compareMode} compareIds={compareIds} toggleCompare={toggleCompare} gridStyle={gridStyle} settings={settings} />}
-          {view === "rankings" && <RankingsView ranked={ranked} onSelect={a => { setSelectedAlbum(a); setView("library"); }} settings={settings} />}
-          {view === "artists" && <ArtistView stats={artistStats} onSelect={artist => { setSearch(artist); setView("library"); }} settings={settings} />}
+          {view === "library" && <LibraryView albums={filtered} filterTier={filterTier} setFilterTier={setFilterTier} sortBy={sortBy} setSortBy={setSortBy} onSelect={a => { if (!compareMode) { setSelectedAlbum(a); sfx("open"); } }} onAdd={() => { setShowAddModal(true); sfx("open"); }} compareMode={compareMode} compareIds={compareIds} toggleCompare={toggleCompare} gridStyle={gridStyle} settings={settings} sfx={sfx} />}
+          {view === "rankings" && <RankingsView ranked={ranked} onSelect={a => { setSelectedAlbum(a); setView("library"); sfx("open"); }} settings={settings} />}
+          {view === "artists" && <ArtistView stats={artistStats} onSelect={artist => { setSearch(artist); setView("library"); sfx("click"); }} settings={settings} />}
           {view === "stats" && <StatsView albums={albums} globalStats={globalStats} ranked={ranked} settings={settings} />}
-          {view === "log" && <LogView log={log} albums={albums} onClear={() => { setLog([]); showToast("Log cleared", "🗑"); }} />}
-          {view === "settings" && <SettingsView settings={settings} onSave={handleSettingsSave} albums={albums} log={log} onExport={handleExport} onImport={handleImport} onClearLog={() => { setLog([]); showToast("Log cleared", "🗑"); }} onSignOut={handleSignOut} user={user} showToast={showToast} />}
+          {view === "log" && <LogView log={log} albums={albums} onClear={() => { setLog([]); showToast("Log cleared", "🗑"); sfx("delete"); }} sfx={sfx} />}
+          {view === "settings" && <SettingsView settings={settings} onSave={handleSettingsSave} albums={albums} log={log} onExport={handleExport} onImport={handleImport} onClearLog={() => { setLog([]); showToast("Log cleared", "🗑"); sfx("delete"); }} onSignOut={handleSignOut} user={user} showToast={showToast} sfx={sfx} />}
         </div>
       </div>
 
-      {selectedAlbum && <AlbumDetail album={selectedAlbum} onClose={() => setSelectedAlbum(null)} onSave={saveAlbum} onDelete={deleteAlbum} onEdit={() => { setEditingAlbum(selectedAlbum); setSelectedAlbum(null); }} settings={settings} />}
-      {(showAddModal || editingAlbum) && <AlbumModal initial={editingAlbum} onClose={() => { setShowAddModal(false); setEditingAlbum(null); }} onSave={a => { saveAlbum(a, [{ type: editingAlbum ? "edit" : "add", albumTitle: a.title, albumArtist: a.artist }]); setShowAddModal(false); setEditingAlbum(null); }} settings={settings} />}
+      {selectedAlbum && <AlbumDetail album={selectedAlbum} onClose={() => { setSelectedAlbum(null); sfx("close"); }} onSave={saveAlbum} onDelete={deleteAlbum} onEdit={() => { setEditingAlbum(selectedAlbum); setSelectedAlbum(null); sfx("click"); }} settings={settings} sfx={sfx} />}
+      {(showAddModal || editingAlbum) && <AlbumModal initial={editingAlbum} onClose={() => { setShowAddModal(false); setEditingAlbum(null); sfx("close"); }} onSave={a => { saveAlbum(a, [{ type: editingAlbum ? "edit" : "add", albumTitle: a.title, albumArtist: a.artist }]); setShowAddModal(false); setEditingAlbum(null); }} settings={settings} sfx={sfx} />}
 
       {compareMode && compareIds.length === 2 && !showCompare && (
         <div className="compare-bar">
@@ -855,20 +1125,20 @@ function App({ user }) {
             </div>
           ))}
           <span className="compare-vs">VS</span>
-          <button className="btn btn-primary btn-sm" onClick={() => setShowCompare(true)}>Compare →</button>
-          <button className="btn btn-ghost btn-sm" onClick={() => setCompareIds([])}>✕</button>
+          <button className="btn btn-primary btn-sm" onClick={() => { setShowCompare(true); sfx("open"); }}>Compare →</button>
+          <button className="btn btn-ghost btn-sm" onClick={() => { setCompareIds([]); sfx("click"); }}>✕</button>
         </div>
       )}
       {showCompare && compareAlbums.length === 2 && (
-        <div className="detail-overlay" onClick={e => e.target === e.currentTarget && setShowCompare(false)}>
-          <ComparePanel albums={compareAlbums} onClose={() => setShowCompare(false)} settings={settings} />
+        <div className="detail-overlay" onClick={e => e.target === e.currentTarget && (setShowCompare(false), sfx("close"))}>
+          <ComparePanel albums={compareAlbums} onClose={() => { setShowCompare(false); sfx("close"); }} settings={settings} />
         </div>
       )}
       {undoData && (
         <div className="undo-bar">
           <span>Album deleted</span>
           <button className="btn btn-ghost btn-sm" onClick={undoDelete}>↩️ Undo</button>
-          <button className="btn btn-ghost btn-sm" onClick={() => { clearTimeout(undoData.timeout); setUndoData(null); }}>✕</button>
+          <button className="btn btn-ghost btn-sm" onClick={() => { clearTimeout(undoData.timeout); setUndoData(null); sfx("click"); }}>✕</button>
         </div>
       )}
       {toast && <div className="toast"><span>{toast.icon}</span>{toast.msg}</div>}
@@ -907,7 +1177,7 @@ function Toggle({ checked, onChange }) {
   );
 }
 
-function SettingsView({ settings, onSave, albums, log, onExport, onImport, onClearLog, onSignOut, user, showToast }) {
+function SettingsView({ settings, onSave, albums, log, onExport, onImport, onClearLog, onSignOut, user, showToast, sfx }) {
   const [local, setLocal] = useState(() => JSON.parse(JSON.stringify(settings)));
   const [activeTab, setActiveTab] = useState("appearance");
   const [dirty, setDirty] = useState(false);
@@ -916,7 +1186,23 @@ function SettingsView({ settings, onSave, albums, log, onExport, onImport, onCle
   function setNested(key, subKey, val) { setLocal(prev => ({ ...prev, [key]: { ...prev[key], [subKey]: val } })); setDirty(true); }
 
   function handleSave() { onSave(local); setDirty(false); }
-  function handleReset() { const d = { ...DEFAULT_SETTINGS }; setLocal(d); setDirty(true); }
+  function handleReset() { const d = { ...DEFAULT_SETTINGS }; setLocal(d); setDirty(true); sfx("click"); }
+
+  // Live-preview SFX volume/enabled changes immediately (without needing Save),
+  // so the test buttons and toggle always reflect what you're about to lock in.
+  function setSfxEnabled(v) {
+    set("sfxEnabled", v);
+    SFX.configure({ ...local, sfxEnabled: v });
+    if (v) SFX.play("toggleOn"); 
+  }
+  function setSfxVolume(v) {
+    set("sfxVolume", v);
+    SFX.configure({ ...local, sfxVolume: v, sfxEnabled: true });
+  }
+  function previewSound(name, arg) {
+    SFX.configure({ ...local, sfxEnabled: true });
+    SFX.play(name, arg);
+  }
 
   const tabs = [
     { id: "appearance", icon: "🎨", label: "Appearance" },
@@ -924,6 +1210,7 @@ function SettingsView({ settings, onSave, albums, log, onExport, onImport, onCle
     { id: "tiers",      icon: "🏅", label: "Tiers" },
     { id: "library",    icon: "📚", label: "Library" },
     { id: "cards",      icon: "🃏", label: "Cards" },
+    { id: "sound",      icon: "🔊", label: "Sound" },
     { id: "data",       icon: "💾", label: "Data & Account" },
   ];
 
@@ -933,7 +1220,7 @@ function SettingsView({ settings, onSave, albums, log, onExport, onImport, onCle
     <div className="settings-layout">
       <div className="settings-sidebar">
         {tabs.map(t => (
-          <button key={t.id} className={"settings-tab" + (activeTab === t.id ? " active" : "")} onClick={() => setActiveTab(t.id)}>
+          <button key={t.id} className={"settings-tab" + (activeTab === t.id ? " active" : "")} onClick={() => { setActiveTab(t.id); sfx("click"); }}>
             <span className="stab-icon">{t.icon}</span>
             <span>{t.label}</span>
           </button>
@@ -959,7 +1246,7 @@ function SettingsView({ settings, onSave, albums, log, onExport, onImport, onCle
                     {ACCENT_COLORS.map(c => (
                       <div key={c.hex} className={"color-swatch" + (local.accentColor === c.hex ? " active" : "")}
                         style={{background:c.hex}} title={c.name}
-                        onClick={() => set("accentColor", c.hex)} />
+                        onClick={() => { set("accentColor", c.hex); sfx("click"); }} />
                     ))}
                     <input type="color" value={local.accentColor} onChange={e => set("accentColor", e.target.value)}
                       style={{width:28,height:28,borderRadius:"50%",padding:0,border:"2px solid #38384a",background:"none",cursor:"pointer"}}
@@ -980,7 +1267,7 @@ function SettingsView({ settings, onSave, albums, log, onExport, onImport, onCle
                       { id: "normal",  label: "Normal",  gap: 8, heights: [16,10,16] },
                       { id: "comfortable", label: "Cozy", gap: 12, heights: [20,12,20] },
                     ].map(opt => (
-                      <div key={opt.id} className={"density-option" + (local.cardDensity === opt.id ? " active" : "")} onClick={() => set("cardDensity", opt.id)}>
+                      <div key={opt.id} className={"density-option" + (local.cardDensity === opt.id ? " active" : "")} onClick={() => { set("cardDensity", opt.id); sfx("click"); }}>
                         <div style={{display:"flex",flexDirection:"column",gap:opt.gap+"px",alignItems:"center"}}>
                           {opt.heights.map((h,i) => <div key={i} style={{height:h+"px",background:local.cardDensity===opt.id?"var(--accent)":"#38384a",borderRadius:3,width:48,opacity:i===1?.6:1,transition:"all .2s"}}/>)}
                         </div>
@@ -999,7 +1286,7 @@ function SettingsView({ settings, onSave, albums, log, onExport, onImport, onCle
                 <div className="settings-row-control" style={{display:"flex",flexDirection:"column",gap:8,alignItems:"flex-end"}}>
                   <div style={{display:"flex",gap:8}}>
                     {[{v:0.85,l:"Small"},{v:1,l:"Default"},{v:1.15,l:"Large"}].map(opt => (
-                      <button key={opt.v} onClick={() => set("fontScale", opt.v)}
+                      <button key={opt.v} onClick={() => { set("fontScale", opt.v); sfx("click"); }}
                         style={{padding:"5px 12px",borderRadius:20,fontSize:12,fontWeight:600,border:"1px solid "+(local.fontScale===opt.v?"var(--accent)":"#2a2a35"),background:local.fontScale===opt.v?"var(--accent-dim)":"#1C1C22",color:local.fontScale===opt.v?"var(--accent)":"#9090A8",cursor:"pointer",transition:"all .15s"}}>
                         {opt.l}
                       </button>
@@ -1023,7 +1310,7 @@ function SettingsView({ settings, onSave, albums, log, onExport, onImport, onCle
                       { id: "badge", label: "Badge", preview: <ScoreRing score={8.4} size={36} style="badge" /> },
                       { id: "text",  label: "Text",  preview: <ScoreRing score={8.4} size={36} style="text" /> },
                     ].map(opt => (
-                      <button key={opt.id} onClick={() => set("scoreRingStyle", opt.id)}
+                      <button key={opt.id} onClick={() => { set("scoreRingStyle", opt.id); sfx("click"); }}
                         style={{padding:"8px 12px",borderRadius:10,border:"1px solid "+(local.scoreRingStyle===opt.id?"var(--accent)":"#2a2a35"),background:local.scoreRingStyle===opt.id?"var(--accent-dim)":"#1C1C22",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:6,transition:"all .15s"}}>
                         {opt.preview}
                         <span style={{fontSize:11,color:local.scoreRingStyle===opt.id?"var(--accent)":"#5a5a70",fontWeight:600}}>{opt.label}</span>
@@ -1038,7 +1325,7 @@ function SettingsView({ settings, onSave, albums, log, onExport, onImport, onCle
                   <div className="settings-row-label">Animations</div>
                   <div className="settings-row-sub">Card hover effects and transitions.</div>
                 </div>
-                <div className="settings-row-control"><Toggle checked={local.animationsEnabled} onChange={v => set("animationsEnabled", v)} /></div>
+                <div className="settings-row-control"><Toggle checked={local.animationsEnabled} onChange={v => { set("animationsEnabled", v); sfx(v?"toggleOn":"toggleOff"); }} /></div>
               </div>
             </div>
           </>
@@ -1056,7 +1343,7 @@ function SettingsView({ settings, onSave, albums, log, onExport, onImport, onCle
                 <div className="settings-row-sub">Precision of the rating slider in the track editor.</div>
               </div>
               <div className="settings-row-control">
-                <select className="settings-select" value={local.ratingStep} onChange={e => set("ratingStep", Number(e.target.value))}>
+                <select className="settings-select" value={local.ratingStep} onChange={e => { set("ratingStep", Number(e.target.value)); sfx("click"); }}>
                   <option value={0.1}>0.1 — Fine</option>
                   <option value={0.5}>0.5 — Half</option>
                   <option value={1}>1.0 — Whole</option>
@@ -1069,7 +1356,7 @@ function SettingsView({ settings, onSave, albums, log, onExport, onImport, onCle
                 <div className="settings-row-label">Show tier badge on cards</div>
                 <div className="settings-row-sub">S / A / B / C / D / F label overlaid on album art.</div>
               </div>
-              <div className="settings-row-control"><Toggle checked={local.showTierBadge} onChange={v => set("showTierBadge", v)} /></div>
+              <div className="settings-row-control"><Toggle checked={local.showTierBadge} onChange={v => { set("showTierBadge", v); sfx(v?"toggleOn":"toggleOff"); }} /></div>
             </div>
 
             <div className="settings-row">
@@ -1077,7 +1364,7 @@ function SettingsView({ settings, onSave, albums, log, onExport, onImport, onCle
                 <div className="settings-row-label">Auto-save on close</div>
                 <div className="settings-row-sub">Save rating changes automatically when you close an album — no "Save" button needed.</div>
               </div>
-              <div className="settings-row-control"><Toggle checked={local.autoSaveOnClose} onChange={v => set("autoSaveOnClose", v)} /></div>
+              <div className="settings-row-control"><Toggle checked={local.autoSaveOnClose} onChange={v => { set("autoSaveOnClose", v); sfx(v?"toggleOn":"toggleOff"); }} /></div>
             </div>
           </div>
         )}
@@ -1122,7 +1409,7 @@ function SettingsView({ settings, onSave, albums, log, onExport, onImport, onCle
                 <div className="settings-row-sub">How albums are ordered when you open the library.</div>
               </div>
               <div className="settings-row-control">
-                <select className="settings-select" value={local.defaultSort} onChange={e => set("defaultSort", e.target.value)}>
+                <select className="settings-select" value={local.defaultSort} onChange={e => { set("defaultSort", e.target.value); sfx("click"); }}>
                   <option value="dateAdded">Date added</option>
                   <option value="rating">Rating</option>
                   <option value="title">Title A–Z</option>
@@ -1138,7 +1425,7 @@ function SettingsView({ settings, onSave, albums, log, onExport, onImport, onCle
                 <div className="settings-row-sub">Which tier the library starts on.</div>
               </div>
               <div className="settings-row-control">
-                <select className="settings-select" value={local.defaultFilter} onChange={e => set("defaultFilter", e.target.value)}>
+                <select className="settings-select" value={local.defaultFilter} onChange={e => { set("defaultFilter", e.target.value); sfx("click"); }}>
                   <option value="all">All tiers</option>
                   {["S","A","B","C","D","F"].map(t => <option key={t} value={t}>{t} tier</option>)}
                 </select>
@@ -1153,7 +1440,7 @@ function SettingsView({ settings, onSave, albums, log, onExport, onImport, onCle
               <div className="settings-row-control">
                 <div style={{display:"flex",gap:8}}>
                   {[{v:"auto",l:"Auto"},{v:"1",l:"1"},{v:"2",l:"2"},{v:"3",l:"3"}].map(opt => (
-                    <button key={opt.v} onClick={() => set("cardColumns", opt.v)}
+                    <button key={opt.v} onClick={() => { set("cardColumns", opt.v); sfx("click"); }}
                       style={{padding:"5px 14px",borderRadius:20,fontSize:13,fontWeight:600,border:"1px solid "+(local.cardColumns===opt.v?"var(--accent)":"#2a2a35"),background:local.cardColumns===opt.v?"var(--accent-dim)":"#1C1C22",color:local.cardColumns===opt.v?"var(--accent)":"#9090A8",cursor:"pointer",transition:"all .15s"}}>
                       {opt.l}
                     </button>
@@ -1183,9 +1470,78 @@ function SettingsView({ settings, onSave, albums, log, onExport, onImport, onCle
                     <span style={{fontSize:18}}>{field.icon}</span>
                     <span style={{fontSize:13,fontWeight:500,color:"#E8E8F0"}}>{field.label}</span>
                   </div>
-                  <Toggle checked={local[field.key]} onChange={v => set(field.key, v)} />
+                  <Toggle checked={local[field.key]} onChange={v => { set(field.key, v); sfx(v?"toggleOn":"toggleOff"); }} />
                 </div>
               ))}
+            </div>
+          </div>
+        )}
+
+        {/* ── SOUND ── */}
+        {activeTab === "sound" && (
+          <div className="settings-section">
+            <div className="settings-section-title">Sound effects</div>
+            <div className="settings-section-desc">Waxify plays short, subtle sound effects for actions like rating tracks, saving albums, and revealing tiers. Tune them here.</div>
+
+            <div className="settings-row">
+              <div className="settings-row-info">
+                <div className="settings-row-label">Enable sound effects</div>
+                <div className="settings-row-sub">Turn all SFX on or off across the app.</div>
+              </div>
+              <div className="settings-row-control"><Toggle checked={local.sfxEnabled} onChange={setSfxEnabled} /></div>
+            </div>
+
+            <div className="settings-row">
+              <div className="settings-row-info">
+                <div className="settings-row-label">SFX volume</div>
+                <div className="settings-row-sub">Adjust how loud sound effects play. Drag to hear a live preview.</div>
+              </div>
+              <div className="settings-row-control">
+                <div className="sfx-volume-row">
+                  <span style={{fontSize:16,opacity:local.sfxEnabled?1:0.4}}>{local.sfxVolume==0?"🔇":local.sfxVolume<0.34?"🔈":local.sfxVolume<0.67?"🔉":"🔊"}</span>
+                  <div className="sfx-slider-wrap">
+                    <input
+                      type="range" className="sfx-slider" min="0" max="1" step="0.01"
+                      value={local.sfxVolume}
+                      disabled={!local.sfxEnabled}
+                      onChange={e => setSfxVolume(Number(e.target.value))}
+                      onMouseUp={() => previewSound("ratingSet")}
+                      onTouchEnd={() => previewSound("ratingSet")}
+                    />
+                    <span className={"sfx-pct"+(!local.sfxEnabled?" muted":"")}>{Math.round(local.sfxVolume*100)}%</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div style={{marginTop:8}}>
+              <div className="settings-row-label" style={{marginBottom:4}}>Preview sounds</div>
+              <div className="settings-row-sub" style={{marginBottom:4}}>Tap any sound to hear it at the current volume.</div>
+              <div className="sfx-test-grid">
+                {[
+                  { id:"click", icon:"👆", label:"UI Click" },
+                  { id:"tap", icon:"🔘", label:"Button" },
+                  { id:"ratingSet", icon:"⭐", label:"Rate Track" },
+                  { id:"perfectTen", icon:"💯", label:"Perfect 10" },
+                  { id:"save", icon:"💾", label:"Save" },
+                  { id:"addAlbum", icon:"➕", label:"Add Album" },
+                  { id:"delete", icon:"🗑️", label:"Delete" },
+                  { id:"undo", icon:"↩️", label:"Undo" },
+                  { id:"open", icon:"📂", label:"Open" },
+                  { id:"close", icon:"✖️", label:"Close" },
+                  { id:"tierReveal", icon:"🏅", label:"Tier Reveal (S)", arg:"S" },
+                  { id:"compareReveal", icon:"⚖️", label:"Compare" },
+                  { id:"toggleOn", icon:"🟢", label:"Toggle On" },
+                  { id:"toggleOff", icon:"⚪", label:"Toggle Off" },
+                  { id:"error", icon:"⚠️", label:"Error" },
+                  { id:"toast", icon:"💬", label:"Notify" },
+                ].map(s => (
+                  <button key={s.id} className="sfx-test-btn" onClick={() => previewSound(s.id, s.arg)}>
+                    <span className="sfx-test-icon">{s.icon}</span>
+                    {s.label}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
         )}
@@ -1255,15 +1611,15 @@ function SettingsView({ settings, onSave, albums, log, onExport, onImport, onCle
 }
 
 // ── Library View ──────────────────────────────────────────────────────────
-function LibraryView({ albums, filterTier, setFilterTier, sortBy, setSortBy, onSelect, onAdd, compareMode, compareIds, toggleCompare, gridStyle, settings }) {
+function LibraryView({ albums, filterTier, setFilterTier, sortBy, setSortBy, onSelect, onAdd, compareMode, compareIds, toggleCompare, gridStyle, settings, sfx }) {
   const tiers = ["all","S","A","B","C","D","F"];
   return (
     <>
       <div className="filters">
-        {tiers.map(t => <button key={t} className={"filter-chip"+(filterTier===t?" active":"")} onClick={() => setFilterTier(t)}>{t==="all"?"All tiers":t+" tier"}</button>)}
+        {tiers.map(t => <button key={t} className={"filter-chip"+(filterTier===t?" active":"")} onClick={() => { setFilterTier(t); sfx("click"); }}>{t==="all"?"All tiers":t+" tier"}</button>)}
         <div style={{flex:1}}/>
         {compareMode && <span style={{fontSize:13,color:"#4FC3F7",fontWeight:600}}>Select 2 albums to compare</span>}
-        <select className="filter-select" value={sortBy} onChange={e => setSortBy(e.target.value)}>
+        <select className="filter-select" value={sortBy} onChange={e => { setSortBy(e.target.value); sfx("click"); }}>
           <option value="dateAdded">Date added</option>
           <option value="rating">Rating</option>
           <option value="title">Title</option>
@@ -1321,12 +1677,13 @@ function AlbumCard({ album, rank, onClick, compareMode, isCompareSelected, toggl
 }
 
 // ── Album Detail ──────────────────────────────────────────────────────────
-function AlbumDetail({ album, onClose, onSave, onDelete, onEdit, settings }) {
+function AlbumDetail({ album, onClose, onSave, onDelete, onEdit, settings, sfx }) {
   const [data, setData] = useState(() => JSON.parse(JSON.stringify(album)));
   const [editingSongId, setEditingSongId] = useState(null);
   const [pickedFavId, setPickedFavId] = useState(album._pickedFavId || null);
   const fileRef = useRef();
   const prevRatings = useRef({});
+  const lastTierRef = useRef(null);
 
   useEffect(() => {
     const snap = {};
@@ -1336,12 +1693,33 @@ function AlbumDetail({ album, onClose, onSave, onDelete, onEdit, settings }) {
 
   const avg = calcAlbumAvg(data.songs);
   const tier = getTier(avg, settings.tierThresholds);
+
+  // Fire a tier-reveal sound whenever the album's tier changes (e.g. crossing a threshold while rating).
+  useEffect(() => {
+    const label = tier ? tier.label : null;
+    if (label && lastTierRef.current !== null && lastTierRef.current !== label) {
+      sfx("tierReveal", label);
+    }
+    lastTierRef.current = label;
+  }, [tier ? tier.label : null]);
+
   const autoFav = getFavSong(data.songs);
   const perfectSongs = data.songs.filter(s => s.rating !== null && s.rating !== "" && Number(s.rating) === 10);
   const hasPerfectPick = perfectSongs.length >= 2;
   const displayFav = (hasPerfectPick && pickedFavId) ? (data.songs.find(s => s.id === pickedFavId) || autoFav) : autoFav;
 
-  function updateSong(id, field, val) { setData(d => ({ ...d, songs: d.songs.map(s => s.id === id ? { ...s, [field]: val } : s) })); }
+  function updateSong(id, field, val) {
+    if (field === "rating") {
+      sfx("ratingTick", val);
+      if (val !== null && Number(val) === 10) setTimeout(() => sfx("perfectTen"), 60);
+    }
+    setData(d => ({ ...d, songs: d.songs.map(s => s.id === id ? { ...s, [field]: val } : s) }));
+  }
+  function commitRating(id, val) {
+    updateSong(id, "rating", val);
+    sfx("ratingSet", val);
+    if (val !== null && Number(val) === 10) setTimeout(() => sfx("perfectTen"), 60);
+  }
   function save() {
     const entries = [];
     data.songs.forEach(s => {
@@ -1358,7 +1736,7 @@ function AlbumDetail({ album, onClose, onSave, onDelete, onEdit, settings }) {
   function handleCoverUpload(e) {
     const file = e.target.files[0]; if (!file) return;
     const reader = new FileReader();
-    reader.onload = ev => setData(d => ({ ...d, cover: ev.target.result }));
+    reader.onload = ev => { setData(d => ({ ...d, cover: ev.target.result })); sfx("upload"); };
     reader.readAsDataURL(file);
   }
 
@@ -1410,14 +1788,19 @@ function AlbumDetail({ album, onClose, onSave, onDelete, onEdit, settings }) {
                     <div style={{display:"flex",alignItems:"center",gap:12,padding:"4px 0"}}>
                       <span style={{fontSize:12,color:"#5a5a70",width:22}}/>
                       <div className="rating-slider-wrap">
-                        <input type="range" className="rating-slider" min="0" max="10" step={settings.ratingStep} value={song.rating!=null?song.rating:0} onChange={e => updateSong(song.id,"rating",Number(e.target.value))}/>
+                        <input type="range" className="rating-slider" min="0" max="10" step={settings.ratingStep} value={song.rating!=null?song.rating:0}
+                          onChange={e => updateSong(song.id,"rating",Number(e.target.value))}
+                          onMouseUp={e => commitRating(song.id, Number(e.target.value))}
+                          onTouchEnd={e => commitRating(song.id, Number(e.target.value))}
+                          onKeyUp={e => commitRating(song.id, Number(e.target.value))}
+                        />
                       </div>
                       <span className="rating-num-badge" style={{color:ratingColor(song.rating)}}>{rn!==null?rn.toFixed(1):"—"}</span>
-                      <button className="btn btn-ghost btn-sm" style={{fontSize:11,padding:"3px 8px"}} onClick={() => updateSong(song.id,"rating",null)}>Clear</button>
+                      <button className="btn btn-ghost btn-sm" style={{fontSize:11,padding:"3px 8px"}} onClick={() => { updateSong(song.id,"rating",null); sfx("click"); }}>Clear</button>
                     </div>
                     <div style={{display:"flex",gap:4,paddingLeft:30,flexWrap:"wrap"}}>
                       {[0,1,2,3,4,5,6,7,8,9,10].map(n => (
-                        <button key={n} onClick={() => updateSong(song.id,"rating",n)}
+                        <button key={n} onClick={() => commitRating(song.id,n)}
                           style={{width:24,height:24,borderRadius:6,fontSize:11,fontWeight:700,cursor:"pointer",border:"1px solid #2a2a35",
                             background:Math.floor(rn!=null?rn:-1)===n?"var(--accent)":"#242430",
                             color:Math.floor(rn!=null?rn:-1)===n?"#000":"#5a5a70"}}>{n}</button>
@@ -1425,7 +1808,7 @@ function AlbumDetail({ album, onClose, onSave, onDelete, onEdit, settings }) {
                     </div>
                     <input className="field-input" style={{marginLeft:30}} placeholder="Note (optional)" value={song.note} onChange={e => updateSong(song.id,"note",e.target.value)}/>
                     <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
-                      <button className="btn btn-ghost btn-sm" onClick={() => setEditingSongId(null)}>Done</button>
+                      <button className="btn btn-ghost btn-sm" onClick={() => { setEditingSongId(null); sfx("click"); }}>Done</button>
                     </div>
                   </div>
                 );
@@ -1439,7 +1822,7 @@ function AlbumDetail({ album, onClose, onSave, onDelete, onEdit, settings }) {
                   </div>
                   {isFav && <span className="song-fav-star">⭐</span>}
                   <span className="song-rating-display" style={{color:ratingColor(rn)}}>{rn!==null?formatRating(rn):<span style={{color:"#5a5a70"}}>—</span>}</span>
-                  <button className="btn btn-ghost btn-sm" style={{opacity:0.5,fontSize:12}} onClick={() => setEditingSongId(song.id)}>Edit</button>
+                  <button className="btn btn-ghost btn-sm" style={{opacity:0.5,fontSize:12}} onClick={() => { setEditingSongId(song.id); sfx("click"); }}>Edit</button>
                 </div>
               );
             })}
@@ -1452,7 +1835,7 @@ function AlbumDetail({ album, onClose, onSave, onDelete, onEdit, settings }) {
               <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
                 {perfectSongs.map(s => {
                   const selected = pickedFavId === s.id;
-                  return <button key={s.id} onClick={() => setPickedFavId(selected?null:s.id)}
+                  return <button key={s.id} onClick={() => { setPickedFavId(selected?null:s.id); sfx("click"); }}
                     style={{padding:"6px 14px",borderRadius:20,fontSize:13,fontWeight:600,cursor:"pointer",
                       border:"1px solid "+(selected?"var(--accent)":"#38384a"),
                       background:selected?"var(--accent-dim)":"#242430",
@@ -1485,15 +1868,15 @@ function AlbumDetail({ album, onClose, onSave, onDelete, onEdit, settings }) {
 }
 
 // ── Album Modal ───────────────────────────────────────────────────────────
-function AlbumModal({ initial, onClose, onSave, settings }) {
+function AlbumModal({ initial, onClose, onSave, settings, sfx }) {
   const [data, setData] = useState(() => initial ? JSON.parse(JSON.stringify(initial)) : EMPTY_ALBUM());
   const coverRef = useRef();
   function set(f,v) { setData(d => ({...d,[f]:v})); }
-  function addSong() { setData(d => ({...d,songs:[...d.songs,EMPTY_SONG()]})); }
-  function removeSong(id) { setData(d => ({...d,songs:d.songs.filter(s=>s.id!==id)})); }
+  function addSong() { setData(d => ({...d,songs:[...d.songs,EMPTY_SONG()]})); sfx("click"); }
+  function removeSong(id) { setData(d => ({...d,songs:d.songs.filter(s=>s.id!==id)})); sfx("click"); }
   function updateSong(id,f,v) { setData(d => ({...d,songs:d.songs.map(s=>s.id===id?{...s,[f]:v}:s)})); }
-  function handleCover(e) { const file=e.target.files[0]; if(!file) return; const r=new FileReader(); r.onload=ev=>setData(d=>({...d,cover:ev.target.result})); r.readAsDataURL(file); }
-  function submit() { if(!data.title.trim()) { alert("Title required"); return; } onSave(data); }
+  function handleCover(e) { const file=e.target.files[0]; if(!file) return; const r=new FileReader(); r.onload=ev=>{setData(d=>({...d,cover:ev.target.result})); sfx("upload");}; r.readAsDataURL(file); }
+  function submit() { if(!data.title.trim()) { alert("Title required"); sfx("error"); return; } onSave(data); }
   return (
     <div className="modal-overlay" onClick={e => e.target===e.currentTarget&&onClose()}>
       <div className="modal">
@@ -1506,7 +1889,7 @@ function AlbumModal({ initial, onClose, onSave, settings }) {
                 {data.cover ? <img src={data.cover} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/> : "🎵"}
               </div>
               <button className="btn btn-ghost btn-sm" onClick={() => coverRef.current.click()}>Upload</button>
-              {data.cover && <button className="btn btn-ghost btn-sm" onClick={() => setData(d=>({...d,cover:null}))}>Remove</button>}
+              {data.cover && <button className="btn btn-ghost btn-sm" onClick={() => { setData(d=>({...d,cover:null})); sfx("click"); }}>Remove</button>}
               <input ref={coverRef} type="file" accept="image/*" style={{display:"none"}} onChange={handleCover}/>
             </div>
           </div>
@@ -1534,7 +1917,7 @@ function AlbumModal({ initial, onClose, onSave, settings }) {
           </div>
         </div>
         <div className="modal-actions">
-          <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+          <button className="btn btn-ghost" onClick={() => { onClose(); sfx("close"); }}>Cancel</button>
           <button className="btn btn-primary" onClick={submit}>{initial?"Save changes":"Add album"}</button>
         </div>
       </div>
@@ -1682,7 +2065,7 @@ function StatsView({ albums, globalStats, ranked, settings }) {
   );
 }
 
-function LogView({ log, albums, onClear }) {
+function LogView({ log, albums, onClear, sfx }) {
   const [filter,setFilter] = useState("all");
   const filtered = filter==="all" ? log : log.filter(e=>e.type===filter);
   function getLogColor(t) { if(t==="rating") return "#F5A623"; if(t==="add") return "#81C784"; if(t==="edit") return "#4FC3F7"; if(t==="delete") return "#FF6B6B"; return "#5a5a70"; }
@@ -1692,7 +2075,7 @@ function LogView({ log, albums, onClear }) {
     <div>
       <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:24,flexWrap:"wrap"}}>
         {["all","rating","add","edit","delete"].map(t => (
-          <button key={t} className={"filter-chip"+(filter===t?" active":"")} onClick={() => setFilter(t)}>
+          <button key={t} className={"filter-chip"+(filter===t?" active":"")} onClick={() => { setFilter(t); sfx("click"); }}>
             {t==="all"?"All":t==="rating"?"⭐ Ratings":t==="add"?"➕ Added":t==="edit"?"✏️ Edits":"🗑 Deleted"}
           </button>
         ))}
